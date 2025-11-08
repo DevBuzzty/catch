@@ -160,7 +160,8 @@ class CatchApp(tk.Tk):
         self._move_player(player, roll)
 
     def _move_player(self, player: PlayerData, steps: int) -> None:
-        target_index = player.position + steps
+        origin_index = player.position
+        target_index = origin_index + steps
         last_index = len(self.document.board.tiles) - 1
         if target_index >= last_index:
             player.position = last_index
@@ -178,11 +179,11 @@ class CatchApp(tk.Tk):
         self._refresh_players()
         tile = self.document.board.tile_at(target_index)
         if tile.category in {"picture", "sound", "emoji", "ai"}:
-            self._present_puzzle(tile.category, player)
+            self._present_puzzle(tile.category, player, origin_index)
         else:
             self._advance_player()
 
-    def _present_puzzle(self, category: str, player: PlayerData) -> None:
+    def _present_puzzle(self, category: str, player: PlayerData, origin_index: int) -> None:
         selection = self.deck.next_for(category)
         if not selection:
             messagebox.showinfo("Keine Rätsel", "Für diese Kategorie sind noch keine Inhalte vorhanden.")
@@ -194,24 +195,29 @@ class CatchApp(tk.Tk):
             "emoji": self._show_emoji_puzzle,
             "ai": self._show_ai_puzzle,
         }[category]
-        handler(selection, player)
+        handler(selection, player, origin_index)
 
     def _normalize(self, value: str) -> str:
         return value.strip().lower()
 
-    def _handle_result(self, player: PlayerData, correct: bool) -> None:
+    def _handle_result(self, player: PlayerData, correct: bool, origin_index: int) -> None:
         if correct:
             messagebox.showinfo("Richtig!", "Sehr gut! Weiter geht's.")
             self._advance_player()
         else:
-            messagebox.showwarning("Falsch", "Leider falsch. Die Figur geht zurück zum Start.")
-            player.position = 0
+            messagebox.showwarning(
+                "Falsch",
+                "Leider falsch. Die Figur geht auf das vorherige Feld zurück.",
+            )
+            player.position = origin_index
             player.finished = False
             self.board_canvas.update_token(player.name, player.position, player.color)
             self._refresh_players()
             self._advance_player()
 
-    def _show_picture_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
+    def _show_picture_puzzle(
+        self, selection: PuzzleSelection, player: PlayerData, origin_index: int
+    ) -> None:
         puzzle: PicturePuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
         window.title("Bild erraten")
@@ -233,7 +239,7 @@ class CatchApp(tk.Tk):
             except Exception:
                 pass
             window.destroy()
-            self._handle_result(player, False)
+            self._handle_result(player, False, origin_index)
 
         def submit() -> None:
             answer = entry.get()
@@ -244,12 +250,17 @@ class CatchApp(tk.Tk):
                 ttk.Label(window, image=full_img).pack(pady=5)
                 window._full = full_img  # type: ignore[attr-defined]
             delay = 2000 if correct else 200
-            window.after(delay, lambda: (window.destroy(), self._handle_result(player, correct)))
+            window.after(
+                delay,
+                lambda: (window.destroy(), self._handle_result(player, correct, origin_index)),
+            )
 
         ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", cancel)
 
-    def _show_sound_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
+    def _show_sound_puzzle(
+        self, selection: PuzzleSelection, player: PlayerData, origin_index: int
+    ) -> None:
         puzzle: SoundPuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
         window.title("Geräusch erraten")
@@ -259,7 +270,7 @@ class CatchApp(tk.Tk):
 
         def cancel() -> None:
             window.destroy()
-            self._handle_result(player, False)
+            self._handle_result(player, False, origin_index)
 
         def play() -> None:
             try:
@@ -275,13 +286,15 @@ class CatchApp(tk.Tk):
             except Exception:
                 pass
             window.destroy()
-            self._handle_result(player, correct)
+            self._handle_result(player, correct, origin_index)
 
         ttk.Button(window, text="▶ Abspielen", command=play).pack(pady=5)
         ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", cancel)
 
-    def _show_emoji_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
+    def _show_emoji_puzzle(
+        self, selection: PuzzleSelection, player: PlayerData, origin_index: int
+    ) -> None:
         puzzle: EmojiPuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
         window.title("Emoji-Rätsel")
@@ -291,18 +304,20 @@ class CatchApp(tk.Tk):
 
         def cancel() -> None:
             window.destroy()
-            self._handle_result(player, False)
+            self._handle_result(player, False, origin_index)
 
         def submit() -> None:
             guess = entry.get()
             correct = self._normalize(guess) == self._normalize(puzzle.answer)
             window.destroy()
-            self._handle_result(player, correct)
+            self._handle_result(player, correct, origin_index)
 
         ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", cancel)
 
-    def _show_ai_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
+    def _show_ai_puzzle(
+        self, selection: PuzzleSelection, player: PlayerData, origin_index: int
+    ) -> None:
         puzzle: AIPuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
         window.title("KI-Rätsel")
@@ -322,7 +337,7 @@ class CatchApp(tk.Tk):
         def choose(kind: str) -> None:
             correct = kind == "ai"
             window.destroy()
-            self._handle_result(player, correct)
+            self._handle_result(player, correct, origin_index)
 
         for column, (kind, image) in enumerate(options):
             frame = ttk.Frame(container)
