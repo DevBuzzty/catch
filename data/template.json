@@ -20,7 +20,7 @@
       },
       {
         "index": 3,
-        "category": "filter",
+        "category": "ai",
         "background": null
       },
       {
@@ -40,7 +40,7 @@
       },
       {
         "index": 7,
-        "category": "filter",
+        "category": "ai",
         "background": null
       },
       {
@@ -60,7 +60,7 @@
       },
       {
         "index": 11,
-        "category": "filter",
+        "category": "ai",
         "background": null
       },
       {
@@ -80,7 +80,7 @@
       },
       {
         "index": 15,
-        "category": "filter",
+        "category": "ai",
         "background": null
       },
       {
@@ -100,7 +100,7 @@
       },
       {
         "index": 19,
-        "category": "filter",
+        "category": "ai",
         "background": null
       },
       {
@@ -120,7 +120,7 @@
       },
       {
         "index": 23,
-        "category": "filter",
+        "category": "ai",
         "background": null
       },
       {
@@ -140,7 +140,7 @@
       },
       {
         "index": 27,
-        "category": "filter",
+        "category": "ai",
         "background": null
       },
       {
@@ -159,7 +159,7 @@
     "picture": [],
     "sound": [],
     "emoji": [],
-    "filter": []
+    "ai": []
   },
   "players": [
     {

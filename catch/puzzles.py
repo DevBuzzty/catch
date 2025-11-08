@@ -12,7 +12,7 @@ try:  # Pillow < 9.1 compatibility
 except AttributeError:  # pragma: no cover - depends on pillow version
     RESAMPLE = Image.LANCZOS
 
-from .models import EmojiPuzzle, FilterPuzzle, PicturePuzzle, SoundPuzzle
+from .models import AIPuzzle, EmojiPuzzle, PicturePuzzle, SoundPuzzle
 from .storage import DATA_DIR, resolve_media_path
 
 try:

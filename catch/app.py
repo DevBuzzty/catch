@@ -7,19 +7,12 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from pathlib import Path
 from typing import List, Optional
 
-from .models import (
-    EmojiPuzzle,
-    FilterPuzzle,
-    GameDocument,
-    PicturePuzzle,
-    PlayerData,
-    SoundPuzzle,
-)
+from .models import AIPuzzle, EmojiPuzzle, GameDocument, PicturePuzzle, PlayerData, SoundPuzzle
 from .puzzles import PuzzleDeck, PuzzleSelection, SoundPlayer, load_image, load_random_snippet
 from .storage import (
     DATA_DIR,
+    add_ai_puzzle,
     add_emoji_puzzle,
-    add_filter_puzzle,
     add_picture_puzzle,
     add_sound_puzzle,
     ensure_directories,
@@ -43,6 +36,9 @@ class CatchApp(tk.Tk):
         self.sound_player = SoundPlayer()
         self.current_player_index: int = 0
         self.cheer_label: Optional[tk.Label] = None
+        self._puzzles_window: Optional[tk.Toplevel] = None
+        self._player_dialog: Optional[PlayerSetupDialog] = None
+        self._player_dialog_open = False
 
         self._create_menu()
         self._create_layout()
@@ -181,7 +177,7 @@ class CatchApp(tk.Tk):
         self.board_canvas.update_token(player.name, player.position, player.color)
         self._refresh_players()
         tile = self.document.board.tile_at(target_index)
-        if tile.category in {"picture", "sound", "emoji", "filter"}:
+        if tile.category in {"picture", "sound", "emoji", "ai"}:
             self._present_puzzle(tile.category, player)
         else:
             self._advance_player()
@@ -196,7 +192,7 @@ class CatchApp(tk.Tk):
             "picture": self._show_picture_puzzle,
             "sound": self._show_sound_puzzle,
             "emoji": self._show_emoji_puzzle,
-            "filter": self._show_filter_puzzle,
+            "ai": self._show_ai_puzzle,
         }[category]
         handler(selection, player)
 
@@ -247,7 +243,8 @@ class CatchApp(tk.Tk):
                 ttk.Label(window, text="Richtig!", font=("Helvetica", 12, "bold")).pack(pady=5)
                 ttk.Label(window, image=full_img).pack(pady=5)
                 window._full = full_img  # type: ignore[attr-defined]
-            window.after(200, lambda: (window.destroy(), self._handle_result(player, correct)))
+            delay = 2000 if correct else 200
+            window.after(delay, lambda: (window.destroy(), self._handle_result(player, correct)))
 
         ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", cancel)
@@ -305,28 +302,38 @@ class CatchApp(tk.Tk):
         ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", cancel)
 
-    def _show_filter_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
-        puzzle: FilterPuzzle = selection.payload  # type: ignore[assignment]
+    def _show_ai_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
+        puzzle: AIPuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
-        window.title("Filterrätsel")
-        image = load_image(puzzle.image_path, size=(420, 420))
-        ttk.Label(window, image=image).pack(padx=10, pady=10)
-        window._image = image  # type: ignore[attr-defined]
-        entry = ttk.Entry(window, width=40)
-        entry.pack(padx=10, pady=5)
+        window.title("KI-Rätsel")
+        ttk.Label(window, text="Welches Bild wurde von KI erzeugt?", font=("Helvetica", 14, "bold")).pack(
+            padx=10, pady=(10, 5)
+        )
+        container = ttk.Frame(window)
+        container.pack(padx=10, pady=10)
 
-        def cancel() -> None:
-            window.destroy()
-            self._handle_result(player, False)
+        options = [
+            ("real", load_image(puzzle.real_path, size=(320, 320))),
+            ("ai", load_image(puzzle.ai_path, size=(320, 320))),
+        ]
+        random.shuffle(options)
+        window._images = [img for _, img in options]  # type: ignore[attr-defined]
 
-        def submit() -> None:
-            guess = entry.get()
-            correct = self._normalize(guess) == self._normalize(puzzle.answer)
+        def choose(kind: str) -> None:
+            correct = kind == "ai"
             window.destroy()
             self._handle_result(player, correct)
 
-        ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
-        window.protocol("WM_DELETE_WINDOW", cancel)
+        for column, (kind, image) in enumerate(options):
+            frame = ttk.Frame(container)
+            frame.grid(row=0, column=column, padx=10)
+            button = ttk.Button(frame, image=image, command=lambda k=kind: choose(k))
+            button.grid(row=0, column=0)
+            label_text = "Bild 1" if column == 0 else "Bild 2"
+            ttk.Label(frame, text=label_text, font=("Helvetica", 11, "bold")).grid(row=1, column=0, pady=(6, 0))
+
+        ttk.Button(window, text="Abbrechen", command=lambda: choose("none")).pack(pady=(0, 10))
+        window.protocol("WM_DELETE_WINDOW", lambda: choose("none"))
 
     def _advance_player(self) -> None:
         if not self.document.players:
@@ -347,8 +354,18 @@ class CatchApp(tk.Tk):
 
     # ---------------------------------------------------------------- Manage players
     def edit_players(self) -> None:
-        dialog = PlayerSetupDialog(self, self.document.players)
+        if self._player_dialog_open and self._player_dialog and self._player_dialog.winfo_exists():
+            self._player_dialog.lift()
+            self._player_dialog.focus_force()
+            return
+        self._player_dialog_open = True
+        try:
+            dialog = PlayerSetupDialog(self, self.document.players)
+            self._player_dialog = dialog
+        finally:
+            self._player_dialog_open = False
         result = dialog.result
+        self._player_dialog = None
         if result is None:
             return
         self.document.players = result
@@ -363,8 +380,36 @@ class CatchApp(tk.Tk):
 
     # ---------------------------------------------------------------- Manage puzzles
     def manage_puzzles(self) -> None:
+        if self._puzzles_window and self._puzzles_window.winfo_exists():
+            self._puzzles_window.lift()
+            self._puzzles_window.focus_force()
+            return
         window = tk.Toplevel(self)
         window.title("Puzzles verwalten")
+        self._puzzles_window = window
+        window.transient(self)
+        window.focus_set()
+        window.grab_set()
+        window.lift()
+
+        def on_close() -> None:
+            if self._puzzles_window is window:
+                self._puzzles_window = None
+            if window.grab_current() is window:
+                window.grab_release()
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", on_close)
+
+        def _cleanup(event: tk.Event) -> None:
+            if event.widget is window:
+                if window.grab_current() is window:
+                    window.grab_release()
+                if self._puzzles_window is window:
+                    self._puzzles_window = None
+
+        window.bind("<Destroy>", _cleanup)
+
         notebook = ttk.Notebook(window)
         notebook.pack(fill=tk.BOTH, expand=True)
 
@@ -380,10 +425,10 @@ class CatchApp(tk.Tk):
         tree_picture = make_list("picture", ["Antwort"])
         tree_sound = make_list("sound", ["Antwort", "Datei"])
         tree_emoji = make_list("emoji", ["Prompt", "Antwort"])
-        tree_filter = make_list("filter", ["Antwort"])
+        tree_ai = make_list("ai", ["Echt", "KI"])
 
         def refresh() -> None:
-            for tree in [tree_picture, tree_sound, tree_emoji, tree_filter]:
+            for tree in [tree_picture, tree_sound, tree_emoji, tree_ai]:
                 for item in tree.get_children():
                     tree.delete(item)
             for puzzle in self.document.puzzles.get("picture", []):
@@ -392,8 +437,13 @@ class CatchApp(tk.Tk):
                 tree_sound.insert("", tk.END, iid=puzzle.id, values=(puzzle.answer, puzzle.audio_path))
             for puzzle in self.document.puzzles.get("emoji", []):
                 tree_emoji.insert("", tk.END, iid=puzzle.id, values=(puzzle.prompt, puzzle.answer))
-            for puzzle in self.document.puzzles.get("filter", []):
-                tree_filter.insert("", tk.END, iid=puzzle.id, values=(puzzle.answer,))
+            for puzzle in self.document.puzzles.get("ai", []):
+                tree_ai.insert(
+                    "",
+                    tk.END,
+                    iid=puzzle.id,
+                    values=(Path(puzzle.real_path).name, Path(puzzle.ai_path).name),
+                )
 
         refresh()
 
@@ -401,11 +451,14 @@ class CatchApp(tk.Tk):
         button_frame.pack(fill=tk.X, pady=10)
 
         def add_picture() -> None:
+            full = filedialog.askopenfilename(
+                title="Bild auswählen",
+                filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")],
+            )
+            if not full:
+                return
             answer = simpledialog.askstring("Bild", "Lösung / Titel des Bildes:", parent=window)
             if not answer:
-                return
-            full = filedialog.askopenfilename(title="Bild auswählen", filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")])
-            if not full:
                 return
             add_picture_puzzle(self.document, answer, Path(full))
             refresh()
@@ -413,11 +466,14 @@ class CatchApp(tk.Tk):
             self.save()
 
         def add_sound() -> None:
+            audio = filedialog.askopenfilename(
+                title="Audiodatei auswählen",
+                filetypes=[("Audio", "*.mp3;*.wav;*.ogg")],
+            )
+            if not audio:
+                return
             answer = simpledialog.askstring("Geräusch", "Was ist zu hören?", parent=window)
             if not answer:
-                return
-            audio = filedialog.askopenfilename(title="Audiodatei auswählen", filetypes=[("Audio", "*.mp3;*.wav;*.ogg")])
-            if not audio:
                 return
             add_sound_puzzle(self.document, answer, Path(audio))
             refresh()
@@ -437,14 +493,20 @@ class CatchApp(tk.Tk):
             self.deck = PuzzleDeck(self.document.puzzles)
             self.save()
 
-        def add_filter() -> None:
-            answer = simpledialog.askstring("Filter", "Was ist zu sehen?", parent=window)
-            if not answer:
+        def add_ai() -> None:
+            real_image = filedialog.askopenfilename(
+                title="Echtes Bild auswählen",
+                filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")],
+            )
+            if not real_image:
                 return
-            image = filedialog.askopenfilename(title="Bild auswählen", filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")])
-            if not image:
+            ai_image = filedialog.askopenfilename(
+                title="KI-Bild auswählen",
+                filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")],
+            )
+            if not ai_image:
                 return
-            add_filter_puzzle(self.document, answer, Path(image))
+            add_ai_puzzle(self.document, Path(real_image), Path(ai_image))
             refresh()
             self.deck = PuzzleDeck(self.document.puzzles)
             self.save()
@@ -465,7 +527,7 @@ class CatchApp(tk.Tk):
         ttk.Button(button_frame, text="Bildrätsel hinzufügen", command=add_picture).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Geräusch hinzufügen", command=add_sound).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Emoji hinzufügen", command=add_emoji).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Filterrätsel hinzufügen", command=add_filter).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="KI-Rätsel hinzufügen", command=add_ai).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Markiertes Rätsel löschen", command=delete_selected).pack(side=tk.LEFT, padx=5)
 
     # ---------------------------------------------------------------- Cheer animation

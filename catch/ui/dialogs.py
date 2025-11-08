@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 from pathlib import Path
 from typing import Callable, List
 
@@ -38,8 +38,8 @@ class PlayerSetupDialog(simpledialog.Dialog):
         name = simpledialog.askstring("Neuer Name", "Name des Teams:", parent=self)
         if not name:
             return
-        color = simpledialog.askstring("Farbe", "Farbe (Hex z.B. #ff0000):", parent=self, initialvalue="#ff0000")
-        if not color:
+        rgb, color = colorchooser.askcolor(parent=self, initialcolor="#ff0000", title="Teamfarbe wählen")
+        if not rgb or not color:
             return
         player = PlayerData(name=name, color=color)
         self.players.append(player)
@@ -54,8 +54,8 @@ class PlayerSetupDialog(simpledialog.Dialog):
         name = simpledialog.askstring("Name", "Neuer Name:", parent=self, initialvalue=player.name)
         if not name:
             return
-        color = simpledialog.askstring("Farbe", "Farbe (Hex):", parent=self, initialvalue=player.color)
-        if not color:
+        rgb, color = colorchooser.askcolor(parent=self, initialcolor=player.color, title="Teamfarbe wählen")
+        if not rgb or not color:
             return
         player.name = name
         player.color = color
@@ -78,7 +78,7 @@ class TileEditDialog(simpledialog.Dialog):
     def body(self, master: tk.Misc) -> tk.Widget:
         ttk.Label(master, text=f"Kategorie für Feld {self.tile.index + 1}").pack(anchor="w", padx=10, pady=(10, 0))
         self.category_var = tk.StringVar(value=self.tile.category)
-        categories = ["start", "finish", "picture", "sound", "emoji", "filter"]
+        categories = ["start", "finish", "picture", "sound", "emoji", "ai"]
         self.category_box = ttk.Combobox(master, textvariable=self.category_var, values=categories, state="readonly")
         self.category_box.pack(fill=tk.X, padx=10, pady=5)
 
@@ -193,21 +193,29 @@ class EmojiKeyboard(tk.Toplevel):
         self.transient(parent)
         self.resizable(False, False)
         self.configure(padx=10, pady=10)
+        self._button_frame = ttk.Frame(self)
+        self._button_frame.pack()
         self._build_buttons()
+        ttk.Button(self, text="Fertig", command=self.destroy).pack(pady=(10, 0))
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
     def _build_buttons(self) -> None:
         columns = 8
         for index, emoji in enumerate(EMOJI_CHOICES):
-            button = ttk.Button(self, text=emoji, width=4, command=lambda e=emoji: self._select(e))
+            button = tk.Button(
+                self._button_frame,
+                text=emoji,
+                font=("Segoe UI Emoji", 18),
+                width=2,
+                command=lambda e=emoji: self._select(e),
+            )
             row = index // columns
             column = index % columns
             button.grid(row=row, column=column, padx=2, pady=2)
 
     def _select(self, emoji: str) -> None:
         self.on_pick(emoji)
-        self.destroy()
 
 
 class EmojiPromptDialog(simpledialog.Dialog):
@@ -217,12 +225,13 @@ class EmojiPromptDialog(simpledialog.Dialog):
         super().__init__(parent, title="Emoji auswählen")
 
     def body(self, master: tk.Misc) -> tk.Widget:
-        ttk.Label(master, text="Emoji oder Hinweistext:").pack(anchor="w", padx=10, pady=(10, 0))
+        ttk.Label(master, text="Emoji auswählen (mehrere möglich):").pack(anchor="w", padx=10, pady=(10, 0))
         frame = ttk.Frame(master)
         frame.pack(fill=tk.X, padx=10, pady=5)
         self.entry = ttk.Entry(frame, textvariable=self.prompt_var, font=("Segoe UI Emoji", 18))
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(frame, text="Emoji-Tastatur", command=self._open_keyboard).pack(side=tk.LEFT, padx=(8, 0))
+        self.entry.focus_set()
         return self.entry
 
     def apply(self) -> None:

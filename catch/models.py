@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
-PUZZLE_CATEGORIES = ["picture", "sound", "emoji", "filter"]
+PUZZLE_CATEGORIES = ["picture", "sound", "emoji", "ai"]
 
 
 @dataclass
@@ -22,7 +22,10 @@ class TileData:
 
     @staticmethod
     def from_dict(data: Dict) -> "TileData":
-        return TileData(index=data["index"], category=data.get("category", "picture"), background=data.get("background"))
+        category = data.get("category", "picture")
+        if category == "filter":
+            category = "ai"
+        return TileData(index=data["index"], category=category, background=data.get("background"))
 
 
 @dataclass
@@ -94,17 +97,17 @@ class EmojiPuzzle:
 
 
 @dataclass
-class FilterPuzzle:
-    answer: str
-    image_path: str
+class AIPuzzle:
+    real_path: str
+    ai_path: str
     id: str
 
     def to_dict(self) -> Dict:
-        return {"answer": self.answer, "image_path": self.image_path, "id": self.id}
+        return {"real_path": self.real_path, "ai_path": self.ai_path, "id": self.id}
 
     @staticmethod
-    def from_dict(data: Dict) -> "FilterPuzzle":
-        return FilterPuzzle(answer=data["answer"], image_path=data["image_path"], id=data["id"])
+    def from_dict(data: Dict) -> "AIPuzzle":
+        return AIPuzzle(real_path=data["real_path"], ai_path=data["ai_path"], id=data["id"])
 
 
 PuzzleBank = Dict[str, List]
@@ -146,7 +149,7 @@ class GameDocument:
                 "picture": [p.to_dict() for p in self.puzzles.get("picture", [])],
                 "sound": [p.to_dict() for p in self.puzzles.get("sound", [])],
                 "emoji": [p.to_dict() for p in self.puzzles.get("emoji", [])],
-                "filter": [p.to_dict() for p in self.puzzles.get("filter", [])],
+                "ai": [p.to_dict() for p in self.puzzles.get("ai", [])],
             },
             "players": [player.to_dict() for player in self.players],
             "finish_order": self.finish_order,
@@ -159,7 +162,7 @@ class GameDocument:
             "picture": [PicturePuzzle.from_dict(p) for p in data.get("puzzles", {}).get("picture", [])],
             "sound": [SoundPuzzle.from_dict(p) for p in data.get("puzzles", {}).get("sound", [])],
             "emoji": [EmojiPuzzle.from_dict(p) for p in data.get("puzzles", {}).get("emoji", [])],
-            "filter": [FilterPuzzle.from_dict(p) for p in data.get("puzzles", {}).get("filter", [])],
+            "ai": [AIPuzzle.from_dict(p) for p in data.get("puzzles", {}).get("ai", [])],
         }
         players = [PlayerData.from_dict(p) for p in data.get("players", [])]
         finish_order = data.get("finish_order", [])
@@ -184,5 +187,5 @@ def default_board(rows: int = 5, cols: int = 6) -> BoardLayout:
 def default_document() -> GameDocument:
     board = default_board()
     players = [PlayerData(name="Team 1", color="#e63946"), PlayerData(name="Team 2", color="#457b9d")]
-    puzzles: Dict[str, List] = {"picture": [], "sound": [], "emoji": [], "filter": []}
+    puzzles: Dict[str, List] = {"picture": [], "sound": [], "emoji": [], "ai": []}
     return GameDocument(board=board, puzzles=puzzles, players=players)

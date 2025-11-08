@@ -4,7 +4,7 @@ Dieses Projekt stellt ein komplett offline nutzbares Spielbrett zur Verfügung, 
 
 ## Funktionen im Überblick
 
-- **Anpassbares Spielbrett** mit 5×6 Feldern (Start & Ziel inklusive). Jedes Feld kann einer der vier Kategorien zugeordnet werden: Bilder erraten, Geräusche erraten, Emoji-Rätsel oder Filter-Rätsel.
+- **Anpassbares Spielbrett** mit 5×6 Feldern (Start & Ziel inklusive). Jedes Feld kann einer der vier Kategorien zugeordnet werden: Bilder erraten, Geräusche erraten, Emoji-Rätsel oder KI-Rätsel.
 - **Individuelle Hintergründe** für jedes Feld – perfekt, um die von Schüler:innen gemalten Bilder zu verwenden.
 - **Flexible Spieler:innen-Verwaltung** mit beliebig vielen Teams, individuellen Farben und automatischer Rangliste.
 - **Digitale Spielfiguren** (farbige Punkte) und integrierter Würfel (1–6).
@@ -12,7 +12,7 @@ Dieses Projekt stellt ein komplett offline nutzbares Spielbrett zur Verfügung, 
   - Bildausschnitt erraten → bei richtiger Antwort erscheint das komplette Bild, bei falscher Antwort geht die Figur zurück zum Start.
   - Geräusch erraten → spielt eine Audiodatei ab.
   - Emoji-Rätsel → Text- oder Emoji-Kombination als Hinweis.
-  - Filterrätsel → gefiltertes Bild erraten.
+  - KI-Rätsel → zwei Bilder werden gezeigt, eines davon ist KI-generiert.
 - **Cheer-Animation** und Rangliste, sobald Teams das Ziel erreichen.
 - **Speicher- und Vorlagenfunktion**, damit eigene Inhalte dauerhaft erhalten bleiben und leicht dupliziert werden können.
 
@@ -54,10 +54,10 @@ data/            Alle spielrelevanten Daten und Medien
 
 1. Öffnen Sie das Programm (`python main.py`).
 2. Nutzen Sie im Menü **Bearbeiten → Puzzles verwalten**:
-   - **Bildrätsel**: geben Sie eine Lösung ein und wählen Sie anschließend den Bildausschnitt sowie das vollständige Bild aus (separate Dateien). Die Dateien werden automatisch in den `data/media/`-Ordner kopiert.
-   - **Geräuschrätsel**: wählen Sie eine MP3/WAV/OGG-Datei und hinterlegen Sie die Lösung.
-   - **Emoji-Rätsel**: tragen Sie Emoji/Text und die zugehörige Lösung ein.
-   - **Filterrätsel**: wählen Sie ein Bild, das mit einem Filter versehen wurde, und geben Sie die Lösung ein.
+   - **Bildrätsel**: wählen Sie ein Bild aus und tragen Sie danach die passende Lösung ein. Der benötigte Bildausschnitt wird automatisch erzeugt und gespeichert.
+   - **Geräuschrätsel**: wählen Sie eine MP3/WAV/OGG-Datei und hinterlegen Sie anschließend die Lösung.
+   - **Emoji-Rätsel**: wählen Sie über die Emoji-Tastatur beliebige Emojis (auch mehrere) und geben Sie danach die Lösung ein.
+   - **KI-Rätsel**: wählen Sie zuerst ein echtes Bild und anschließend ein KI-generiertes Bild aus. Im Spiel müssen die Teams entscheiden, welches Bild von der KI stammt.
 3. **Spieler:innen** verwalten Sie über **Bearbeiten → Spieler:innen**. Neue Teams können angelegt, Farben gesetzt und bestehende Teams entfernt werden.
 4. **Spielfelder** bearbeiten Sie, indem Sie auf ein Feld klicken und anschließend im Menü **Spielbrett → Ausgewähltes Feld bearbeiten** die Kategorie oder den Hintergrund anpassen.
 5. Speichern nicht vergessen – über den Button rechts oder über **Datei → Speichern**.

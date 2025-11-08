@@ -15,15 +15,7 @@ try:  # Pillow < 9.1 compatibility
 except AttributeError:  # pragma: no cover - depends on pillow version
     RESAMPLE = Image.LANCZOS
 
-from .models import (
-    EmojiPuzzle,
-    FilterPuzzle,
-    GameDocument,
-    PicturePuzzle,
-    SoundPuzzle,
-    TileData,
-    default_document,
-)
+from .models import AIPuzzle, EmojiPuzzle, GameDocument, PicturePuzzle, SoundPuzzle, TileData, default_document
 
 
 DATA_DIR = Path("data")
@@ -32,7 +24,9 @@ BOARD_BG_DIR = MEDIA_DIR / "board"
 PICTURE_SNIPPETS_DIR = MEDIA_DIR / "picture" / "snippets"
 PICTURE_FULL_DIR = MEDIA_DIR / "picture" / "full"
 SOUND_DIR = MEDIA_DIR / "sound"
-FILTER_DIR = MEDIA_DIR / "filter"
+AI_DIR = MEDIA_DIR / "ai"
+AI_REAL_DIR = AI_DIR / "real"
+AI_FAKE_DIR = AI_DIR / "generated"
 EMOJI_DIR = MEDIA_DIR / "emoji"
 DEFAULT_SAVE = DATA_DIR / "game_state.json"
 TEMPLATE_FILE = DATA_DIR / "template.json"
@@ -46,7 +40,9 @@ def ensure_directories() -> None:
         PICTURE_SNIPPETS_DIR,
         PICTURE_FULL_DIR,
         SOUND_DIR,
-        FILTER_DIR,
+        AI_DIR,
+        AI_REAL_DIR,
+        AI_FAKE_DIR,
         EMOJI_DIR,
     ]:
         directory.mkdir(parents=True, exist_ok=True)
@@ -140,10 +136,11 @@ def add_emoji_puzzle(document: GameDocument, prompt: str, answer: str) -> EmojiP
     return puzzle
 
 
-def add_filter_puzzle(document: GameDocument, answer: str, image: Path) -> FilterPuzzle:
-    image_rel = copy_media(image, FILTER_DIR)
-    puzzle = FilterPuzzle(answer=answer, image_path=image_rel, id=uuid.uuid4().hex)
-    document.puzzles.setdefault("filter", []).append(puzzle)
+def add_ai_puzzle(document: GameDocument, real_image: Path, ai_image: Path) -> AIPuzzle:
+    real_rel = copy_media(real_image, AI_REAL_DIR)
+    ai_rel = copy_media(ai_image, AI_FAKE_DIR)
+    puzzle = AIPuzzle(real_path=real_rel, ai_path=ai_rel, id=uuid.uuid4().hex)
+    document.puzzles.setdefault("ai", []).append(puzzle)
     return puzzle
 
 
