@@ -43,21 +43,26 @@ class PlayerData:
 @dataclass
 class PicturePuzzle:
     answer: str
-    snippet_path: str
     full_path: str
     id: str
+    snippet_path: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return {
             "answer": self.answer,
-            "snippet_path": self.snippet_path,
             "full_path": self.full_path,
             "id": self.id,
+            "snippet_path": self.snippet_path,
         }
 
     @staticmethod
     def from_dict(data: Dict) -> "PicturePuzzle":
-        return PicturePuzzle(answer=data["answer"], snippet_path=data["snippet_path"], full_path=data["full_path"], id=data["id"])
+        return PicturePuzzle(
+            answer=data["answer"],
+            full_path=data["full_path"],
+            id=data["id"],
+            snippet_path=data.get("snippet_path"),
+        )
 
 
 @dataclass

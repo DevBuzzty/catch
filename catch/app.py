@@ -15,7 +15,7 @@ from .models import (
     PlayerData,
     SoundPuzzle,
 )
-from .puzzles import PuzzleDeck, PuzzleSelection, SoundPlayer, load_image
+from .puzzles import PuzzleDeck, PuzzleSelection, SoundPlayer, load_image, load_random_snippet
 from .storage import (
     DATA_DIR,
     add_emoji_puzzle,
@@ -28,7 +28,7 @@ from .storage import (
     save_document,
 )
 from .ui.board_canvas import BoardCanvas
-from .ui.dialogs import PlayerSetupDialog, TileEditDialog
+from .ui.dialogs import EmojiPromptDialog, PlayerSetupDialog, TileEditDialog
 
 
 class CatchApp(tk.Tk):
@@ -219,7 +219,11 @@ class CatchApp(tk.Tk):
         puzzle: PicturePuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
         window.title("Bild erraten")
-        snippet = load_image(puzzle.snippet_path, size=(420, 420))
+        try:
+            snippet = load_random_snippet(puzzle.full_path, size=(420, 420))
+        except FileNotFoundError:
+            fallback = puzzle.snippet_path or puzzle.full_path
+            snippet = load_image(fallback, size=(420, 420))
         ttk.Label(window, image=snippet).pack(padx=10, pady=10)
         # Keep reference to prevent GC
         window._snippet = snippet  # type: ignore[attr-defined]
@@ -400,13 +404,10 @@ class CatchApp(tk.Tk):
             answer = simpledialog.askstring("Bild", "Lösung / Titel des Bildes:", parent=window)
             if not answer:
                 return
-            snippet = filedialog.askopenfilename(title="Ausschnitt auswählen", filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")])
-            if not snippet:
-                return
-            full = filedialog.askopenfilename(title="Gesamtes Bild auswählen", filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")])
+            full = filedialog.askopenfilename(title="Bild auswählen", filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")])
             if not full:
                 return
-            puzzle = add_picture_puzzle(self.document, answer, Path(snippet), Path(full))
+            add_picture_puzzle(self.document, answer, Path(full))
             refresh()
             self.deck = PuzzleDeck(self.document.puzzles)
             self.save()
@@ -424,7 +425,8 @@ class CatchApp(tk.Tk):
             self.save()
 
         def add_emoji() -> None:
-            prompt = simpledialog.askstring("Emoji", "Emoji oder Hinweistext:", parent=window)
+            dialog = EmojiPromptDialog(window)
+            prompt = dialog.result
             if not prompt:
                 return
             answer = simpledialog.askstring("Emoji", "Lösung:", parent=window)

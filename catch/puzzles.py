@@ -5,7 +5,7 @@ import random
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageOps, ImageTk
 
 try:  # Pillow < 9.1 compatibility
     RESAMPLE = Image.Resampling.LANCZOS
@@ -54,6 +54,35 @@ def load_image(relative_path: str, size: Optional[Sequence[int]] = None) -> Imag
     if size:
         image.thumbnail(size, RESAMPLE)
     return ImageTk.PhotoImage(image)
+
+
+def load_random_snippet(
+    relative_path: str,
+    size: Optional[Sequence[int]] = None,
+    zoom_range: Sequence[float] = (0.35, 0.6),
+) -> ImageTk.PhotoImage:
+    path = resolve_media_path(relative_path)
+    if not path or not path.exists():
+        raise FileNotFoundError(f"Image not found: {relative_path}")
+    with Image.open(path) as image:
+        width, height = image.size
+        if width < 40 or height < 40:
+            cropped = image.copy()
+        else:
+            min_zoom, max_zoom = zoom_range
+            zoom = random.uniform(min_zoom, max_zoom)
+            crop_w = max(40, int(width * zoom))
+            crop_h = max(40, int(height * zoom))
+            max_x = max(0, width - crop_w)
+            max_y = max(0, height - crop_h)
+            left = random.randint(0, max_x) if max_x else 0
+            top = random.randint(0, max_y) if max_y else 0
+            right = left + crop_w
+            bottom = top + crop_h
+            cropped = image.crop((left, top, right, bottom))
+        if size:
+            cropped = ImageOps.fit(cropped, size, RESAMPLE)
+        return ImageTk.PhotoImage(cropped)
 
 
 class SoundPlayer:

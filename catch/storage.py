@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 import json
+import random
 import shutil
 import uuid
 from pathlib import Path
 from typing import Optional
+
+from PIL import Image, ImageOps
+
+try:  # Pillow < 9.1 compatibility
+    RESAMPLE = Image.Resampling.LANCZOS
+except AttributeError:  # pragma: no cover - depends on pillow version
+    RESAMPLE = Image.LANCZOS
 
 from .models import (
     EmojiPuzzle,
@@ -84,10 +92,37 @@ def copy_media(src: Path, dest_dir: Path) -> str:
     return make_relative(destination)
 
 
-def add_picture_puzzle(document: GameDocument, answer: str, snippet: Path, full: Path) -> PicturePuzzle:
-    snippet_rel = copy_media(snippet, PICTURE_SNIPPETS_DIR)
+def _generate_snippet_from_full(full_rel: str) -> Optional[str]:
+    full_path = DATA_DIR / full_rel
+    if not full_path.exists():
+        return None
+    with Image.open(full_path) as image:
+        width, height = image.size
+        if width < 40 or height < 40:
+            return None
+        min_zoom, max_zoom = 0.35, 0.6
+        zoom = random.uniform(min_zoom, max_zoom)
+        crop_w = max(40, int(width * zoom))
+        crop_h = max(40, int(height * zoom))
+        max_x = max(0, width - crop_w)
+        max_y = max(0, height - crop_h)
+        left = random.randint(0, max_x) if max_x else 0
+        top = random.randint(0, max_y) if max_y else 0
+        right = left + crop_w
+        bottom = top + crop_h
+        snippet = image.crop((left, top, right, bottom))
+        snippet = ImageOps.fit(snippet, (512, 512), RESAMPLE)
+    identifier = uuid.uuid4().hex
+    dest = PICTURE_SNIPPETS_DIR / f"{identifier}{full_path.suffix or '.png'}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    snippet.save(dest)
+    return make_relative(dest)
+
+
+def add_picture_puzzle(document: GameDocument, answer: str, full: Path) -> PicturePuzzle:
     full_rel = copy_media(full, PICTURE_FULL_DIR)
-    puzzle = PicturePuzzle(answer=answer, snippet_path=snippet_rel, full_path=full_rel, id=uuid.uuid4().hex)
+    snippet_rel = _generate_snippet_from_full(full_rel)
+    puzzle = PicturePuzzle(answer=answer, full_path=full_rel, id=uuid.uuid4().hex, snippet_path=snippet_rel)
     document.puzzles.setdefault("picture", []).append(puzzle)
     return puzzle
 

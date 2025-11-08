@@ -4,7 +4,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from pathlib import Path
-from typing import List
+from typing import Callable, List
 
 from ..models import PlayerData, TileData
 from ..storage import set_tile_background
@@ -99,4 +99,140 @@ class TileEditDialog(simpledialog.Dialog):
             messagebox.showinfo("Gespeichert", "Hintergrund wurde kopiert und dem Feld zugewiesen.")
         except Exception as exc:  # pragma: no cover - user feedback only
             messagebox.showerror("Fehler", str(exc))
+
+
+EMOJI_CHOICES = [
+    "😀",
+    "😁",
+    "😂",
+    "🤣",
+    "😃",
+    "😄",
+    "😅",
+    "😆",
+    "😉",
+    "😊",
+    "😍",
+    "😘",
+    "😗",
+    "😜",
+    "🤩",
+    "🤗",
+    "🤔",
+    "🤨",
+    "😎",
+    "🥳",
+    "🤠",
+    "😺",
+    "😻",
+    "🙈",
+    "🙉",
+    "🙊",
+    "🐶",
+    "🐱",
+    "🐭",
+    "🐸",
+    "🐵",
+    "🦊",
+    "🐼",
+    "🦄",
+    "🐢",
+    "🐧",
+    "🐞",
+    "🌈",
+    "⭐",
+    "⚽",
+    "🏀",
+    "🎲",
+    "🎹",
+    "🥁",
+    "🚀",
+    "✈️",
+    "🚗",
+    "🏰",
+    "🧚",
+    "🦸",
+    "🍎",
+    "🍉",
+    "🍩",
+    "🍪",
+    "🍕",
+    "🍟",
+    "🌮",
+    "🥨",
+    "🍰",
+    "🎂",
+    "🍭",
+    "☀️",
+    "🌙",
+    "⭐️",
+    "⚡",
+    "☁️",
+    "❄️",
+    "💡",
+    "❤️",
+    "💙",
+    "💚",
+    "💛",
+    "💜",
+    "🤍",
+    "🤎",
+    "🧠",
+    "💪",
+    "🖐️",
+    "👍",
+    "👎",
+]
+
+
+class EmojiKeyboard(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, on_pick: Callable[[str], None]):
+        super().__init__(parent)
+        self.on_pick = on_pick
+        self.title("Emoji-Tastatur")
+        self.transient(parent)
+        self.resizable(False, False)
+        self.configure(padx=10, pady=10)
+        self._build_buttons()
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    def _build_buttons(self) -> None:
+        columns = 8
+        for index, emoji in enumerate(EMOJI_CHOICES):
+            button = ttk.Button(self, text=emoji, width=4, command=lambda e=emoji: self._select(e))
+            row = index // columns
+            column = index % columns
+            button.grid(row=row, column=column, padx=2, pady=2)
+
+    def _select(self, emoji: str) -> None:
+        self.on_pick(emoji)
+        self.destroy()
+
+
+class EmojiPromptDialog(simpledialog.Dialog):
+    def __init__(self, parent: tk.Misc):
+        self.prompt_var = tk.StringVar()
+        self.entry: ttk.Entry
+        super().__init__(parent, title="Emoji auswählen")
+
+    def body(self, master: tk.Misc) -> tk.Widget:
+        ttk.Label(master, text="Emoji oder Hinweistext:").pack(anchor="w", padx=10, pady=(10, 0))
+        frame = ttk.Frame(master)
+        frame.pack(fill=tk.X, padx=10, pady=5)
+        self.entry = ttk.Entry(frame, textvariable=self.prompt_var, font=("Segoe UI Emoji", 18))
+        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(frame, text="Emoji-Tastatur", command=self._open_keyboard).pack(side=tk.LEFT, padx=(8, 0))
+        return self.entry
+
+    def apply(self) -> None:
+        self.result = self.prompt_var.get().strip()
+
+    def _open_keyboard(self) -> None:
+        keyboard = EmojiKeyboard(self, self._insert_emoji)
+        keyboard.wait_window()
+
+    def _insert_emoji(self, emoji: str) -> None:
+        self.entry.insert(tk.INSERT, emoji)
+        self.prompt_var.set(self.entry.get())
 
