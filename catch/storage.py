@@ -6,7 +6,7 @@ import random
 import shutil
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, List, Optional
 
 from PIL import Image, ImageOps
 
@@ -147,6 +147,16 @@ def add_ai_puzzle(document: GameDocument, real_image: Path, ai_image: Path) -> A
 def set_tile_background(tile: TileData, image_path: Path) -> None:
     rel_path = copy_media(image_path, BOARD_BG_DIR)
     tile.background = rel_path
+
+
+def add_board_backgrounds(images: Iterable[Path]) -> List[str]:
+    """Copy multiple board background images into storage."""
+
+    stored: List[str] = []
+    for image in images:
+        rel_path = copy_media(image, BOARD_BG_DIR)
+        stored.append(rel_path)
+    return stored
 
 
 def export_template(document: GameDocument) -> None:

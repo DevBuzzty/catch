@@ -12,6 +12,7 @@ from .puzzles import PuzzleDeck, PuzzleSelection, SoundPlayer, load_image, load_
 from .storage import (
     DATA_DIR,
     add_ai_puzzle,
+    add_board_backgrounds,
     add_emoji_puzzle,
     add_picture_puzzle,
     add_sound_puzzle,
@@ -66,6 +67,7 @@ class CatchApp(tk.Tk):
 
         board_menu = tk.Menu(menu_bar, tearoff=False)
         board_menu.add_command(label="Ausgewähltes Feld bearbeiten", command=self.edit_selected_tile)
+        board_menu.add_command(label="Hintergründe hochladen", command=self.upload_board_backgrounds)
         menu_bar.add_cascade(label="Spielbrett", menu=board_menu)
 
         help_menu = tk.Menu(menu_bar, tearoff=False)
@@ -367,8 +369,48 @@ class CatchApp(tk.Tk):
             messagebox.showinfo("Hinweis", "Start- und Zielfelder können nicht bearbeitet werden.")
             return
         TileEditDialog(self, tile)
-        self.board_canvas.redraw()
+        self._refresh_board()
         self.save()
+
+    def upload_board_backgrounds(self) -> None:
+        filenames = filedialog.askopenfilenames(
+            title="Bilder für Spielfelder auswählen",
+            filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")],
+        )
+        if not filenames:
+            return
+        images = [Path(name) for name in filenames]
+        try:
+            stored = add_board_backgrounds(images)
+        except Exception as exc:  # pragma: no cover - user feedback only
+            messagebox.showerror("Hintergründe", str(exc))
+            return
+        if not stored:
+            messagebox.showinfo("Hintergründe", "Es wurden keine Bilder übernommen.")
+            return
+        self._assign_backgrounds_randomly(stored)
+        self._refresh_board()
+        self.save()
+        messagebox.showinfo(
+            "Hintergründe",
+            "Die Bilder wurden kopiert und zufällig auf das Spielbrett verteilt.",
+        )
+
+    def _assign_backgrounds_randomly(self, backgrounds: List[str]) -> None:
+        if not backgrounds:
+            return
+        tiles = [tile for tile in self.document.board.tiles if tile.category not in {"start", "finish"}]
+        if not tiles:
+            return
+        shuffled_tiles = tiles[:]
+        random.shuffle(shuffled_tiles)
+        assignments: List[str] = []
+        while len(assignments) < len(shuffled_tiles):
+            batch = backgrounds[:]
+            random.shuffle(batch)
+            assignments.extend(batch)
+        for tile, background in zip(shuffled_tiles, assignments):
+            tile.background = background
 
     # ---------------------------------------------------------------- Manage players
     def edit_players(self) -> None:
