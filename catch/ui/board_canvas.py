@@ -82,38 +82,12 @@ class BoardCanvas(tk.Canvas):
         self.tag_lower(border)
 
         tile_entries = []
-        centers = []
         for tile in self.board.tiles:
             geom = self._tile_geometry(tile.index)
             self._tile_geometries[tile.index] = geom
             cx = geom.x + geom.width / 2
             cy = geom.y + geom.height / 2
             tile_entries.append((tile, geom, cx, cy))
-            centers.append((cx, cy))
-
-        if len(centers) >= 2:
-            for (start_x, start_y), (end_x, end_y) in zip(centers, centers[1:]):
-                path = self.create_line(
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                    width=self.tile_size * 0.55,
-                    fill="#f7b267",
-                    capstyle=tk.ROUND,
-                )
-                overlay = self.create_line(
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                    width=self.tile_size * 0.18,
-                    fill="#ffe8d6",
-                    capstyle=tk.ROUND,
-                )
-                self.tag_lower(path)
-                self.tag_lower(overlay)
-                self.tag_raise(overlay, path)
 
         for tile, geom, cx, cy in tile_entries:
             x0, y0 = geom.x, geom.y
@@ -177,6 +151,30 @@ class BoardCanvas(tk.Canvas):
                     width=4,
                     dash=(6, 4),
                 )
+
+        connectors = self._build_connector_paths(tile_entries)
+        for coords in connectors:
+            path = self.create_line(
+                *coords,
+                width=self.tile_size * 0.42,
+                fill="#f7b267",
+                capstyle=tk.ROUND,
+                smooth=True,
+                splinesteps=24,
+                tags=("path",),
+            )
+            overlay = self.create_line(
+                *coords,
+                width=self.tile_size * 0.16,
+                fill="#ffe8d6",
+                capstyle=tk.ROUND,
+                smooth=True,
+                splinesteps=24,
+                tags=("path", "path-highlight"),
+            )
+            self.tag_lower(path, "tile")
+            self.tag_lower(overlay, "tile")
+            self.tag_raise(overlay, path)
 
     def set_selected(self, index: Optional[int]) -> None:
         self.selected_index = index
@@ -256,3 +254,25 @@ class BoardCanvas(tk.Canvas):
             item_id = self._token_items[token_id]
             self.coords(item_id, *coords)
             self.tag_raise(item_id)
+
+    def _build_connector_paths(self, tile_entries: List[tuple]) -> List[List[float]]:
+        if len(tile_entries) < 2:
+            return []
+
+        connectors: List[List[float]] = []
+        lateral_step = self.tile_size / 2 + self.gap_x / 2
+        for idx in range(len(tile_entries) - 1):
+            tile_a, _geom_a, ax, ay = tile_entries[idx]
+            tile_b, _geom_b, bx, by = tile_entries[idx + 1]
+            row_a = tile_a.index // self.board.cols
+            row_b = tile_b.index // self.board.cols
+
+            if row_a == row_b:
+                connectors.append([ax, ay, bx, by])
+                continue
+
+            direction = 1 if row_a % 2 == 0 else -1
+            pivot_x = ax + direction * lateral_step
+            connectors.append([ax, ay, pivot_x, ay, pivot_x, by, bx, by])
+
+        return connectors
