@@ -348,6 +348,9 @@ class CatchApp(tk.Tk):
             messagebox.showinfo("Auswahl", "Bitte klicken Sie zuerst auf ein Feld.")
             return
         tile = self.document.board.tile_at(index)
+        if tile.category in {"start", "finish"}:
+            messagebox.showinfo("Hinweis", "Start- und Zielfelder können nicht bearbeitet werden.")
+            return
         TileEditDialog(self, tile)
         self.board_canvas.redraw()
         self.save()
@@ -494,12 +497,14 @@ class CatchApp(tk.Tk):
             self.save()
 
         def add_ai() -> None:
+            messagebox.showinfo("KI-Rätsel", "Lade jetzt das echte Bild hoch und bestätige mit OK.", parent=window)
             real_image = filedialog.askopenfilename(
                 title="Echtes Bild auswählen",
                 filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")],
             )
             if not real_image:
                 return
+            messagebox.showinfo("KI-Rätsel", "Lade jetzt das KI-Bild hoch und bestätige mit OK.", parent=window)
             ai_image = filedialog.askopenfilename(
                 title="KI-Bild auswählen",
                 filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")],

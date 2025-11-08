@@ -92,26 +92,28 @@ class BoardCanvas(tk.Canvas):
             centers.append((cx, cy))
 
         if len(centers) >= 2:
-            points: list[float] = []
-            for cx, cy in centers:
-                points.extend((cx, cy))
-            path = self.create_line(
-                *points,
-                smooth=True,
-                width=self.tile_size * 0.55,
-                fill="#f7b267",
-                capstyle=tk.ROUND,
-            )
-            overlay = self.create_line(
-                *points,
-                smooth=True,
-                width=self.tile_size * 0.18,
-                fill="#ffe8d6",
-                capstyle=tk.ROUND,
-            )
-            self.tag_lower(path)
-            self.tag_lower(overlay)
-            self.tag_raise(overlay, path)
+            for (start_x, start_y), (end_x, end_y) in zip(centers, centers[1:]):
+                path = self.create_line(
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    width=self.tile_size * 0.55,
+                    fill="#f7b267",
+                    capstyle=tk.ROUND,
+                )
+                overlay = self.create_line(
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    width=self.tile_size * 0.18,
+                    fill="#ffe8d6",
+                    capstyle=tk.ROUND,
+                )
+                self.tag_lower(path)
+                self.tag_lower(overlay)
+                self.tag_raise(overlay, path)
 
         for tile, geom, cx, cy in tile_entries:
             x0, y0 = geom.x, geom.y

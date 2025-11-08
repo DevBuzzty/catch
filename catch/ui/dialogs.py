@@ -78,7 +78,9 @@ class TileEditDialog(simpledialog.Dialog):
     def body(self, master: tk.Misc) -> tk.Widget:
         ttk.Label(master, text=f"Kategorie für Feld {self.tile.index + 1}").pack(anchor="w", padx=10, pady=(10, 0))
         self.category_var = tk.StringVar(value=self.tile.category)
-        categories = ["start", "finish", "picture", "sound", "emoji", "ai"]
+        categories = ["picture", "sound", "emoji", "ai"]
+        if self.category_var.get() not in categories:
+            self.category_var.set(categories[0])
         self.category_box = ttk.Combobox(master, textvariable=self.category_var, values=categories, state="readonly")
         self.category_box.pack(fill=tk.X, padx=10, pady=5)
 
