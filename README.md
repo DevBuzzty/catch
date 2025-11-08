@@ -93,6 +93,44 @@ Alle Medien werden automatisch in die passenden Unterordner kopiert, sodass das 
 
 > Tipp: Wenn Sie das Spiel auf mehreren Rechnern nutzen möchten, kopieren Sie einfach den kompletten Projektordner auf jeden USB-Stick. Änderungen an Rätseln oder Spielständen landen ausschließlich im `data/`-Verzeichnis.
 
+## Projekt auf GitHub veröffentlichen
+
+Falls Sie das Projekt mit Kolleg:innen teilen oder Sicherungen erstellen möchten, können Sie das Repository zu einem neuen GitHub-Projekt hochladen:
+
+1. [Erstellen Sie auf github.com ein neues, leeres Repository](https://github.com/new) (ohne README/Lizenz/.gitignore).
+2. Öffnen Sie eine Konsole im Projektordner und initialisieren Sie – falls noch nicht geschehen – das Git-Repository:
+
+   ```bash
+   git init
+   git add .
+   git commit -m "Initialer Stand"
+   ```
+
+3. Verknüpfen Sie den lokalen Ordner mit dem GitHub-Repository (ersetzen Sie `BENUTZERNAME` und `REPOSITORY`):
+
+   ```bash
+   git remote add origin https://github.com/BENUTZERNAME/REPOSITORY.git
+   ```
+
+4. Laden Sie den aktuellen Stand hoch:
+
+   ```bash
+   git push -u origin main
+   ```
+
+   - Sollte Ihr lokaler Branch anders heißen (z. B. `master`), passen Sie den Namen entsprechend an.
+   - Beim ersten Push fragt Git nach Ihren GitHub-Anmeldedaten bzw. einem Personal Access Token.
+
+5. Ab jetzt reichen zukünftige Aktualisierungen per
+
+   ```bash
+   git add .
+   git commit -m "Änderungen beschreiben"
+   git push
+   ```
+
+Damit steht das Projekt auch anderen Teammitgliedern zur Verfügung, und Sie können bequem Versionen verwalten oder Issues nutzen.
+
 ## Hinweise
 
 - Für reibungslose Audio-Wiedergabe empfiehlt es sich, WAV-Dateien zu verwenden. MP3 und OGG funktionieren ebenfalls, sofern die Codecs vom System unterstützt werden.
