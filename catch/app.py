@@ -1,0 +1,540 @@
+"""Tkinter application for the Catch classroom board game."""
+from __future__ import annotations
+
+import random
+import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog, ttk
+from pathlib import Path
+from typing import List, Optional
+
+from .models import (
+    EmojiPuzzle,
+    FilterPuzzle,
+    GameDocument,
+    PicturePuzzle,
+    PlayerData,
+    SoundPuzzle,
+)
+from .puzzles import PuzzleDeck, PuzzleSelection, SoundPlayer, load_image
+from .storage import (
+    DATA_DIR,
+    add_emoji_puzzle,
+    add_filter_puzzle,
+    add_picture_puzzle,
+    add_sound_puzzle,
+    ensure_directories,
+    export_template,
+    load_document,
+    save_document,
+)
+from .ui.board_canvas import BoardCanvas
+from .ui.dialogs import PlayerSetupDialog, TileEditDialog
+
+
+class CatchApp(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        ensure_directories()
+        self.title("Catch – Klassen-Spielbrett")
+        self.geometry("1280x840")
+        self.minsize(1100, 720)
+        self.document: GameDocument = load_document()
+        self.deck = PuzzleDeck(self.document.puzzles)
+        self.sound_player = SoundPlayer()
+        self.current_player_index: int = 0
+        self.cheer_label: Optional[tk.Label] = None
+
+        self._create_menu()
+        self._create_layout()
+        self._refresh_board()
+        self._refresh_players()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ------------------------------------------------------------------ UI
+    def _create_menu(self) -> None:
+        menu_bar = tk.Menu(self)
+        file_menu = tk.Menu(menu_bar, tearoff=False)
+        file_menu.add_command(label="Speichern", command=self.save)
+        file_menu.add_command(label="Speichern unter…", command=self.save_as)
+        file_menu.add_separator()
+        file_menu.add_command(label="Vorlage aktualisieren", command=self.save_template)
+        file_menu.add_command(label="Vorlage neu laden", command=self.reset_to_template)
+        file_menu.add_separator()
+        file_menu.add_command(label="Beenden", command=self._on_close)
+        menu_bar.add_cascade(label="Datei", menu=file_menu)
+
+        edit_menu = tk.Menu(menu_bar, tearoff=False)
+        edit_menu.add_command(label="Spieler:innen", command=self.edit_players)
+        edit_menu.add_command(label="Puzzles verwalten", command=self.manage_puzzles)
+        menu_bar.add_cascade(label="Bearbeiten", menu=edit_menu)
+
+        board_menu = tk.Menu(menu_bar, tearoff=False)
+        board_menu.add_command(label="Ausgewähltes Feld bearbeiten", command=self.edit_selected_tile)
+        menu_bar.add_cascade(label="Spielbrett", menu=board_menu)
+
+        help_menu = tk.Menu(menu_bar, tearoff=False)
+        help_menu.add_command(label="Info", command=self.show_about)
+        menu_bar.add_cascade(label="Hilfe", menu=help_menu)
+
+        self.config(menu=menu_bar)
+
+    def _create_layout(self) -> None:
+        container = ttk.Frame(self)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        self.board_canvas = BoardCanvas(container, self.document.board)
+        self.board_canvas.pack(side=tk.LEFT, padx=10, pady=10)
+        self.board_canvas.bind("<<TileSelected>>", self._on_tile_selected)
+
+        sidebar = ttk.Frame(container, width=320)
+        sidebar.pack(side=tk.RIGHT, fill=tk.BOTH, padx=10, pady=10)
+
+        self.turn_label = ttk.Label(sidebar, text="Am Zug: —", font=("Helvetica", 14, "bold"))
+        self.turn_label.pack(fill=tk.X, pady=10)
+
+        dice_frame = ttk.Frame(sidebar)
+        dice_frame.pack(fill=tk.X, pady=10)
+        self.dice_result = tk.StringVar(value="Würfeln!")
+        ttk.Button(dice_frame, text="🎲 Würfeln", command=self.roll_dice).pack(side=tk.LEFT)
+        ttk.Label(dice_frame, textvariable=self.dice_result, font=("Helvetica", 14)).pack(side=tk.LEFT, padx=10)
+
+        ttk.Button(sidebar, text="Spieler:innen bearbeiten", command=self.edit_players).pack(fill=tk.X, pady=5)
+        ttk.Button(sidebar, text="Puzzles verwalten", command=self.manage_puzzles).pack(fill=tk.X, pady=5)
+        ttk.Button(sidebar, text="Spiel speichern", command=self.save).pack(fill=tk.X, pady=5)
+
+        ttk.Separator(sidebar).pack(fill=tk.X, pady=10)
+        ttk.Label(sidebar, text="Positionen", font=("Helvetica", 12, "bold")).pack(anchor="w")
+        self.player_list = tk.Listbox(sidebar, height=6)
+        self.player_list.pack(fill=tk.X, pady=5)
+
+        ttk.Label(sidebar, text="Rangliste", font=("Helvetica", 12, "bold")).pack(anchor="w", pady=(10, 0))
+        self.rank_list = tk.Listbox(sidebar, height=6)
+        self.rank_list.pack(fill=tk.X, pady=5)
+
+        info = (
+            "Tipp: Klicken Sie auf ein Feld, um es auszuwählen und anschließend \n"
+            "über das Menü 'Spielbrett' die Kategorie oder den Hintergrund zu ändern."
+        )
+        ttk.Label(sidebar, text=info, wraplength=280, justify=tk.LEFT).pack(fill=tk.X, pady=10)
+
+    # ---------------------------------------------------------------- Board / players
+    def _refresh_board(self) -> None:
+        self.board_canvas.board = self.document.board
+        self.board_canvas.redraw()
+        self.board_canvas.clear_tokens()
+        for player in self.document.players:
+            self.board_canvas.update_token(player.name, player.position, player.color)
+
+    def _refresh_players(self) -> None:
+        self.player_list.delete(0, tk.END)
+        for player in self.document.players:
+            status = "🏁" if player.finished else f"Feld {player.position + 1}"
+            self.player_list.insert(tk.END, f"{player.name}: {status}")
+        if self.document.players:
+            active = self.document.players[self.current_player_index % len(self.document.players)]
+            self.turn_label.config(text=f"Am Zug: {active.name}")
+        else:
+            self.turn_label.config(text="Am Zug: —")
+        self._refresh_ranking()
+
+    def _refresh_ranking(self) -> None:
+        self.rank_list.delete(0, tk.END)
+        for index, name in enumerate(self.document.finish_order, start=1):
+            self.rank_list.insert(tk.END, f"{index}. {name}")
+
+    # ---------------------------------------------------------------- Events
+    def _on_tile_selected(self, event: tk.Event) -> None:  # pragma: no cover - GUI event
+        data = getattr(event, "data", None)
+        try:
+            index = int(data)
+        except (TypeError, ValueError):
+            return
+        self.board_canvas.set_selected(index)
+
+    def roll_dice(self) -> None:
+        if not self.document.players:
+            messagebox.showinfo("Info", "Bitte legen Sie zuerst Spieler:innen an.")
+            return
+        player = self.document.players[self.current_player_index]
+        if player.finished:
+            self._advance_player()
+            return
+        roll = random.randint(1, 6)
+        self.dice_result.set(str(roll))
+        self._move_player(player, roll)
+
+    def _move_player(self, player: PlayerData, steps: int) -> None:
+        target_index = player.position + steps
+        last_index = len(self.document.board.tiles) - 1
+        if target_index >= last_index:
+            player.position = last_index
+            player.finished = True
+            if player.name not in self.document.finish_order:
+                self.document.finish_order.append(player.name)
+            self.board_canvas.update_token(player.name, player.position, player.color)
+            self._refresh_players()
+            self._celebrate(player.name)
+            self._advance_player()
+            return
+
+        player.position = target_index
+        self.board_canvas.update_token(player.name, player.position, player.color)
+        self._refresh_players()
+        tile = self.document.board.tile_at(target_index)
+        if tile.category in {"picture", "sound", "emoji", "filter"}:
+            self._present_puzzle(tile.category, player)
+        else:
+            self._advance_player()
+
+    def _present_puzzle(self, category: str, player: PlayerData) -> None:
+        selection = self.deck.next_for(category)
+        if not selection:
+            messagebox.showinfo("Keine Rätsel", "Für diese Kategorie sind noch keine Inhalte vorhanden.")
+            self._advance_player()
+            return
+        handler = {
+            "picture": self._show_picture_puzzle,
+            "sound": self._show_sound_puzzle,
+            "emoji": self._show_emoji_puzzle,
+            "filter": self._show_filter_puzzle,
+        }[category]
+        handler(selection, player)
+
+    def _normalize(self, value: str) -> str:
+        return value.strip().lower()
+
+    def _handle_result(self, player: PlayerData, correct: bool) -> None:
+        if correct:
+            messagebox.showinfo("Richtig!", "Sehr gut! Weiter geht's.")
+            self._advance_player()
+        else:
+            messagebox.showwarning("Falsch", "Leider falsch. Die Figur geht zurück zum Start.")
+            player.position = 0
+            player.finished = False
+            self.board_canvas.update_token(player.name, player.position, player.color)
+            self._refresh_players()
+            self._advance_player()
+
+    def _show_picture_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
+        puzzle: PicturePuzzle = selection.payload  # type: ignore[assignment]
+        window = tk.Toplevel(self)
+        window.title("Bild erraten")
+        snippet = load_image(puzzle.snippet_path, size=(420, 420))
+        ttk.Label(window, image=snippet).pack(padx=10, pady=10)
+        # Keep reference to prevent GC
+        window._snippet = snippet  # type: ignore[attr-defined]
+        entry = ttk.Entry(window, width=40)
+        entry.pack(padx=10, pady=5)
+        entry.focus_set()
+
+        def cancel() -> None:
+            try:
+                self.sound_player.stop()
+            except Exception:
+                pass
+            window.destroy()
+            self._handle_result(player, False)
+
+        def submit() -> None:
+            answer = entry.get()
+            correct = self._normalize(answer) == self._normalize(puzzle.answer)
+            if correct:
+                full_img = load_image(puzzle.full_path, size=(420, 420))
+                ttk.Label(window, text="Richtig!", font=("Helvetica", 12, "bold")).pack(pady=5)
+                ttk.Label(window, image=full_img).pack(pady=5)
+                window._full = full_img  # type: ignore[attr-defined]
+            window.after(200, lambda: (window.destroy(), self._handle_result(player, correct)))
+
+        ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
+        window.protocol("WM_DELETE_WINDOW", cancel)
+
+    def _show_sound_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
+        puzzle: SoundPuzzle = selection.payload  # type: ignore[assignment]
+        window = tk.Toplevel(self)
+        window.title("Geräusch erraten")
+        ttk.Label(window, text="Klick auf 'Abspielen' und gib dann deine Vermutung ein.").pack(padx=10, pady=10)
+        entry = ttk.Entry(window, width=30)
+        entry.pack(padx=10, pady=5)
+
+        def cancel() -> None:
+            window.destroy()
+            self._handle_result(player, False)
+
+        def play() -> None:
+            try:
+                self.sound_player.play(puzzle.audio_path)
+            except Exception as exc:  # pragma: no cover - hardware dependent
+                messagebox.showerror("Audio", str(exc))
+
+        def submit() -> None:
+            guess = entry.get()
+            correct = self._normalize(guess) == self._normalize(puzzle.answer)
+            try:
+                self.sound_player.stop()
+            except Exception:
+                pass
+            window.destroy()
+            self._handle_result(player, correct)
+
+        ttk.Button(window, text="▶ Abspielen", command=play).pack(pady=5)
+        ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
+        window.protocol("WM_DELETE_WINDOW", cancel)
+
+    def _show_emoji_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
+        puzzle: EmojiPuzzle = selection.payload  # type: ignore[assignment]
+        window = tk.Toplevel(self)
+        window.title("Emoji-Rätsel")
+        ttk.Label(window, text=puzzle.prompt, font=("Segoe UI Emoji", 24)).pack(padx=10, pady=10)
+        entry = ttk.Entry(window, width=40)
+        entry.pack(padx=10, pady=5)
+
+        def cancel() -> None:
+            window.destroy()
+            self._handle_result(player, False)
+
+        def submit() -> None:
+            guess = entry.get()
+            correct = self._normalize(guess) == self._normalize(puzzle.answer)
+            window.destroy()
+            self._handle_result(player, correct)
+
+        ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
+        window.protocol("WM_DELETE_WINDOW", cancel)
+
+    def _show_filter_puzzle(self, selection: PuzzleSelection, player: PlayerData) -> None:
+        puzzle: FilterPuzzle = selection.payload  # type: ignore[assignment]
+        window = tk.Toplevel(self)
+        window.title("Filterrätsel")
+        image = load_image(puzzle.image_path, size=(420, 420))
+        ttk.Label(window, image=image).pack(padx=10, pady=10)
+        window._image = image  # type: ignore[attr-defined]
+        entry = ttk.Entry(window, width=40)
+        entry.pack(padx=10, pady=5)
+
+        def cancel() -> None:
+            window.destroy()
+            self._handle_result(player, False)
+
+        def submit() -> None:
+            guess = entry.get()
+            correct = self._normalize(guess) == self._normalize(puzzle.answer)
+            window.destroy()
+            self._handle_result(player, correct)
+
+        ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
+        window.protocol("WM_DELETE_WINDOW", cancel)
+
+    def _advance_player(self) -> None:
+        if not self.document.players:
+            return
+        self.current_player_index = (self.current_player_index + 1) % len(self.document.players)
+        self._refresh_players()
+
+    # ---------------------------------------------------------------- Manage board
+    def edit_selected_tile(self) -> None:
+        index = self.board_canvas.selected_index
+        if index is None:
+            messagebox.showinfo("Auswahl", "Bitte klicken Sie zuerst auf ein Feld.")
+            return
+        tile = self.document.board.tile_at(index)
+        TileEditDialog(self, tile)
+        self.board_canvas.redraw()
+        self.save()
+
+    # ---------------------------------------------------------------- Manage players
+    def edit_players(self) -> None:
+        dialog = PlayerSetupDialog(self, self.document.players)
+        result = dialog.result
+        if result is None:
+            return
+        self.document.players = result
+        for player in self.document.players:
+            player.position = 0
+            player.finished = False
+        self.document.finish_order.clear()
+        self.current_player_index = 0
+        self._refresh_board()
+        self._refresh_players()
+        self.save()
+
+    # ---------------------------------------------------------------- Manage puzzles
+    def manage_puzzles(self) -> None:
+        window = tk.Toplevel(self)
+        window.title("Puzzles verwalten")
+        notebook = ttk.Notebook(window)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        def make_list(category: str, columns: List[str]) -> ttk.Treeview:
+            tree = ttk.Treeview(notebook, columns=columns, show="headings")
+            for col, label in zip(columns, columns):
+                tree.heading(col, text=label.title())
+                tree.column(col, width=180, anchor="w")
+            tree.pack(fill=tk.BOTH, expand=True)
+            notebook.add(tree, text=category.title())
+            return tree
+
+        tree_picture = make_list("picture", ["Antwort"])
+        tree_sound = make_list("sound", ["Antwort", "Datei"])
+        tree_emoji = make_list("emoji", ["Prompt", "Antwort"])
+        tree_filter = make_list("filter", ["Antwort"])
+
+        def refresh() -> None:
+            for tree in [tree_picture, tree_sound, tree_emoji, tree_filter]:
+                for item in tree.get_children():
+                    tree.delete(item)
+            for puzzle in self.document.puzzles.get("picture", []):
+                tree_picture.insert("", tk.END, iid=puzzle.id, values=(puzzle.answer,))
+            for puzzle in self.document.puzzles.get("sound", []):
+                tree_sound.insert("", tk.END, iid=puzzle.id, values=(puzzle.answer, puzzle.audio_path))
+            for puzzle in self.document.puzzles.get("emoji", []):
+                tree_emoji.insert("", tk.END, iid=puzzle.id, values=(puzzle.prompt, puzzle.answer))
+            for puzzle in self.document.puzzles.get("filter", []):
+                tree_filter.insert("", tk.END, iid=puzzle.id, values=(puzzle.answer,))
+
+        refresh()
+
+        button_frame = ttk.Frame(window)
+        button_frame.pack(fill=tk.X, pady=10)
+
+        def add_picture() -> None:
+            answer = simpledialog.askstring("Bild", "Lösung / Titel des Bildes:", parent=window)
+            if not answer:
+                return
+            snippet = filedialog.askopenfilename(title="Ausschnitt auswählen", filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")])
+            if not snippet:
+                return
+            full = filedialog.askopenfilename(title="Gesamtes Bild auswählen", filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")])
+            if not full:
+                return
+            puzzle = add_picture_puzzle(self.document, answer, Path(snippet), Path(full))
+            refresh()
+            self.deck = PuzzleDeck(self.document.puzzles)
+            self.save()
+
+        def add_sound() -> None:
+            answer = simpledialog.askstring("Geräusch", "Was ist zu hören?", parent=window)
+            if not answer:
+                return
+            audio = filedialog.askopenfilename(title="Audiodatei auswählen", filetypes=[("Audio", "*.mp3;*.wav;*.ogg")])
+            if not audio:
+                return
+            add_sound_puzzle(self.document, answer, Path(audio))
+            refresh()
+            self.deck = PuzzleDeck(self.document.puzzles)
+            self.save()
+
+        def add_emoji() -> None:
+            prompt = simpledialog.askstring("Emoji", "Emoji oder Hinweistext:", parent=window)
+            if not prompt:
+                return
+            answer = simpledialog.askstring("Emoji", "Lösung:", parent=window)
+            if not answer:
+                return
+            add_emoji_puzzle(self.document, prompt, answer)
+            refresh()
+            self.deck = PuzzleDeck(self.document.puzzles)
+            self.save()
+
+        def add_filter() -> None:
+            answer = simpledialog.askstring("Filter", "Was ist zu sehen?", parent=window)
+            if not answer:
+                return
+            image = filedialog.askopenfilename(title="Bild auswählen", filetypes=[("Bilder", "*.png;*.jpg;*.jpeg;*.gif")])
+            if not image:
+                return
+            add_filter_puzzle(self.document, answer, Path(image))
+            refresh()
+            self.deck = PuzzleDeck(self.document.puzzles)
+            self.save()
+
+        def delete_selected() -> None:
+            tree = notebook.nametowidget(notebook.select())
+            selection = tree.selection()
+            if not selection:
+                return
+            puzzle_id = selection[0]
+            category = notebook.tab(notebook.select(), "text").lower()
+            items = self.document.puzzles.get(category, [])
+            self.document.puzzles[category] = [item for item in items if item.id != puzzle_id]
+            refresh()
+            self.deck = PuzzleDeck(self.document.puzzles)
+            self.save()
+
+        ttk.Button(button_frame, text="Bildrätsel hinzufügen", command=add_picture).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Geräusch hinzufügen", command=add_sound).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Emoji hinzufügen", command=add_emoji).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Filterrätsel hinzufügen", command=add_filter).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Markiertes Rätsel löschen", command=delete_selected).pack(side=tk.LEFT, padx=5)
+
+    # ---------------------------------------------------------------- Cheer animation
+    def _celebrate(self, player_name: str) -> None:
+        if self.cheer_label:
+            self.cheer_label.destroy()
+        label = tk.Label(self.board_canvas, text=f"🎉 {player_name} im Ziel!", font=("Helvetica", 18, "bold"), bg="#ffb703")
+        label.place(relx=0.5, rely=0.1, anchor="center")
+        self.cheer_label = label
+
+        colors = ["#ffb703", "#fb8500", "#ff006e"]
+
+        def animate(step: int = 0) -> None:
+            if not self.cheer_label:
+                return
+            self.cheer_label.config(bg=colors[step % len(colors)])
+            if step < 12:
+                self.after(200, animate, step + 1)
+            else:
+                self.cheer_label.destroy()
+                self.cheer_label = None
+
+        animate(0)
+
+    # ---------------------------------------------------------------- Save/load helpers
+    def save(self) -> None:
+        save_document(self.document)
+
+    def save_as(self) -> None:
+        filename = filedialog.asksaveasfilename(title="Speichern unter", defaultextension=".json", filetypes=[("JSON", "*.json")])
+        if not filename:
+            return
+        save_document(self.document, Path(filename))
+
+    def save_template(self) -> None:
+        export_template(self.document)
+        messagebox.showinfo("Vorlage", "Die aktuelle Konfiguration wurde als Vorlage gespeichert.")
+
+    def reset_to_template(self) -> None:
+        template_path = DATA_DIR / "template.json"
+        if not template_path.exists():
+            messagebox.showerror("Vorlage", "Es wurde noch keine Vorlage gespeichert.")
+            return
+        self.document = load_document(template_path)
+        self.deck = PuzzleDeck(self.document.puzzles)
+        for player in self.document.players:
+            player.position = 0
+            player.finished = False
+        self.document.finish_order.clear()
+        self.current_player_index = 0
+        self._refresh_board()
+        self._refresh_players()
+        self.save()
+
+    def show_about(self) -> None:
+        messagebox.showinfo(
+            "Über Catch",
+            "Catch – ein anpassbares Spielbrett für die digitale Tafel.\n"
+            "Laden Sie eigene Inhalte hoch, speichern Sie das Spiel und verteilen\n"
+            "Sie den gesamten Ordner (inkl. data/) auf einen USB-Stick.",
+        )
+
+    def _on_close(self) -> None:
+        self.save()
+        self.destroy()
+
+
+def run() -> None:
+    app = CatchApp()
+    app.mainloop()
+
+
+if __name__ == "__main__":
+    run()

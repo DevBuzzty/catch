@@ -34,6 +34,13 @@ ExportedObj/
 # Unity3D Generated File On Crash Reports
 sysinfo.txt
 
-# Builds
-*.apk
-*.unitypackage
+# Python / Projekt spezifisch
+__pycache__/
+.venv/
+dist/
+build/
+
+# Laufzeitdaten (werden zur Laufzeit erzeugt)
+data/game_state.json
+data/media/**
+!data/media/**/.gitkeep
