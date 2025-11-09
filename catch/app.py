@@ -248,12 +248,25 @@ class CatchApp(tk.Tk):
         except FileNotFoundError:
             fallback = puzzle.snippet_path or puzzle.full_path
             snippet = load_image(fallback, size=(image_size, image_size))
-        ttk.Label(window, image=snippet).pack(padx=10, pady=10)
-        # Keep reference to prevent GC
+        content = ttk.Frame(window)
+        content.pack(padx=10, pady=10)
+
+        snippet_label = ttk.Label(content, image=snippet)
+        snippet_label.pack(side=tk.LEFT, padx=(0, 10))
+        full_label = ttk.Label(content)
+        full_label.pack(side=tk.LEFT)
+
+        # Keep references to prevent garbage collection and allow later updates
         window._snippet = snippet  # type: ignore[attr-defined]
+        window._full_label = full_label  # type: ignore[attr-defined]
+        window._full_image = None  # type: ignore[attr-defined]
+
         entry = ttk.Entry(window, width=40)
         entry.pack(padx=10, pady=5)
         entry.focus_set()
+
+        status_label = ttk.Label(window, text="")
+        status_label.pack(pady=(0, 5))
 
         def cancel() -> None:
             try:
@@ -268,9 +281,9 @@ class CatchApp(tk.Tk):
             correct = self._normalize(answer) == self._normalize(puzzle.answer)
             if correct:
                 full_img = load_image(puzzle.full_path, size=(image_size, image_size))
-                ttk.Label(window, text="Richtig!", font=("Helvetica", 12, "bold")).pack(pady=5)
-                ttk.Label(window, image=full_img).pack(pady=5)
-                window._full = full_img  # type: ignore[attr-defined]
+                status_label.config(text="Richtig!", font=("Helvetica", 12, "bold"))
+                full_label.config(image=full_img)
+                window._full_image = full_img  # type: ignore[attr-defined]
                 self._center_modal(window)
             delay = 2000 if correct else 200
             window.after(
