@@ -252,14 +252,10 @@ class CatchApp(tk.Tk):
         content.pack(padx=10, pady=10)
 
         snippet_label = ttk.Label(content, image=snippet)
-        snippet_label.pack(side=tk.LEFT, padx=(0, 10))
-        full_label = ttk.Label(content)
-        full_label.pack(side=tk.LEFT)
+        snippet_label.pack(side=tk.LEFT)
 
-        # Keep references to prevent garbage collection and allow later updates
-        window._snippet = snippet  # type: ignore[attr-defined]
-        window._full_label = full_label  # type: ignore[attr-defined]
-        window._full_image = None  # type: ignore[attr-defined]
+        # Keep reference to prevent garbage collection and allow later updates
+        window._current_image = snippet  # type: ignore[attr-defined]
 
         entry = ttk.Entry(window, width=40)
         entry.pack(padx=10, pady=5)
@@ -282,8 +278,8 @@ class CatchApp(tk.Tk):
             if correct:
                 full_img = load_image(puzzle.full_path)
                 status_label.config(text="Richtig!", font=("Helvetica", 12, "bold"))
-                full_label.config(image=full_img)
-                window._full_image = full_img  # type: ignore[attr-defined]
+                snippet_label.config(image=full_img)
+                window._current_image = full_img  # type: ignore[attr-defined]
                 self._center_modal(window)
             delay = 2000 if correct else 200
             window.after(
