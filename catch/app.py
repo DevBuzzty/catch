@@ -280,7 +280,7 @@ class CatchApp(tk.Tk):
             answer = entry.get()
             correct = self._normalize(answer) == self._normalize(puzzle.answer)
             if correct:
-                full_img = load_image(puzzle.full_path, size=(image_size, image_size))
+                full_img = load_image(puzzle.full_path)
                 status_label.config(text="Richtig!", font=("Helvetica", 12, "bold"))
                 full_label.config(image=full_img)
                 window._full_image = full_img  # type: ignore[attr-defined]
