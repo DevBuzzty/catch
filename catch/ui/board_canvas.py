@@ -26,31 +26,77 @@ class TileGeometry:
 
 
 class BoardCanvas(tk.Canvas):
+    MARGIN_X_RATIO = 1.0
+    MARGIN_Y_RATIO = 0.9
+    GAP_X_RATIO = 0.45
+    GAP_Y_RATIO = 0.35
+
     def __init__(self, master: tk.Misc, board: BoardLayout, tile_size: int = 110, **kwargs) -> None:
+        self.board = board
+        self._base_tile_size = tile_size
         self.tile_size = tile_size
-        self.margin_x = int(tile_size * 1.0)
-        self.margin_y = int(tile_size * 0.9)
-        self.gap_x = int(tile_size * 0.45)
-        self.gap_y = int(tile_size * 0.35)
-        width = self.margin_x * 2 + board.cols * tile_size + (board.cols - 1) * self.gap_x
-        height = self.margin_y * 2 + board.rows * tile_size + (board.rows - 1) * self.gap_y
+        self.margin_x = 0
+        self.margin_y = 0
+        self.gap_x = 0
+        self.gap_y = 0
+        self._base_width = 0
+        self._base_height = 0
+        self._configure_geometry(tile_size)
         super().__init__(
             master,
-            width=width,
-            height=height,
+            width=self._base_width,
+            height=self._base_height,
             bg="#514a9d",
             highlightthickness=0,
             **kwargs,
         )
-        self.board = board
         self._images: Dict[int, ImageTk.PhotoImage] = {}
         self._token_items: Dict[str, int] = {}
         self._token_positions: Dict[str, int] = {}
         self._tile_token_order: Dict[int, List[str]] = {}
+        self._token_colors: Dict[str, str] = {}
         self.selected_index: Optional[int] = None
         self._tile_geometries: Dict[int, TileGeometry] = {}
         self.bind("<Button-1>", self._on_click)
+        self.bind("<Configure>", self._on_canvas_configure)
         self.redraw()
+
+    def _configure_geometry(self, tile_size: int) -> None:
+        self.tile_size = max(60, int(tile_size))
+        self.margin_x = int(self.tile_size * self.MARGIN_X_RATIO)
+        self.margin_y = int(self.tile_size * self.MARGIN_Y_RATIO)
+        self.gap_x = int(self.tile_size * self.GAP_X_RATIO)
+        self.gap_y = int(self.tile_size * self.GAP_Y_RATIO)
+        self._base_width = (
+            self.margin_x * 2
+            + self.board.cols * self.tile_size
+            + (self.board.cols - 1) * self.gap_x
+        )
+        self._base_height = (
+            self.margin_y * 2
+            + self.board.rows * self.tile_size
+            + (self.board.rows - 1) * self.gap_y
+        )
+
+    def _on_canvas_configure(self, event: tk.Event) -> None:  # pragma: no cover - UI event
+        if event.width <= 1 or event.height <= 1:
+            return
+        width_factor = (
+            self.board.cols
+            + (self.board.cols - 1) * self.GAP_X_RATIO
+            + 2 * self.MARGIN_X_RATIO
+        )
+        height_factor = (
+            self.board.rows
+            + (self.board.rows - 1) * self.GAP_Y_RATIO
+            + 2 * self.MARGIN_Y_RATIO
+        )
+        new_size = int(min(event.width / width_factor, event.height / height_factor))
+        if new_size <= 0:
+            return
+        if abs(new_size - self.tile_size) >= 1:
+            self._configure_geometry(new_size)
+            self.redraw()
 
     def _tile_geometry(self, index: int) -> TileGeometry:
         row = index // self.board.cols
@@ -64,12 +110,19 @@ class BoardCanvas(tk.Canvas):
         return TileGeometry(x=x, y=y, width=self.tile_size, height=self.tile_size)
 
     def redraw(self) -> None:
+        positions = dict(self._token_positions)
+        colors = dict(self._token_colors)
+        orders = {index: list(order) for index, order in self._tile_token_order.items()}
+
         self.delete("all")
         self._images.clear()
         self._tile_geometries.clear()
+        self._token_items.clear()
+        self._token_positions = {}
+        self._tile_token_order = {}
 
-        canvas_width = int(float(self.cget("width")))
-        canvas_height = int(float(self.cget("height")))
+        canvas_width = max(self.winfo_width(), self._base_width)
+        canvas_height = max(self.winfo_height(), self._base_height)
         border = self.create_rectangle(
             20,
             20,
@@ -176,6 +229,18 @@ class BoardCanvas(tk.Canvas):
             self.tag_lower(overlay, "tile")
             self.tag_raise(overlay, path)
 
+        if positions:
+            self._token_colors = colors
+            for tile_index in orders:
+                for token_id in orders[tile_index]:
+                    color = colors.get(token_id, "#1d3557")
+                    position = positions.get(token_id, tile_index)
+                    self.update_token(token_id, position, color)
+            for token_id, position in positions.items():
+                if token_id not in self._token_items:
+                    color = colors.get(token_id, "#1d3557")
+                    self.update_token(token_id, position, color)
+
     def set_selected(self, index: Optional[int]) -> None:
         self.selected_index = index
         self.redraw()
@@ -204,6 +269,7 @@ class BoardCanvas(tk.Canvas):
         order = self._tile_token_order.setdefault(tile_index, [])
         if token_id not in order:
             order.append(token_id)
+        self._token_colors[token_id] = color
         if token_id not in self._token_items:
             geom = self._tile_geometry(tile_index)
             radius = self.tile_size // 6
@@ -238,6 +304,7 @@ class BoardCanvas(tk.Canvas):
         self._token_items.clear()
         self._token_positions.clear()
         self._tile_token_order.clear()
+        self._token_colors.clear()
 
     def _layout_tile_tokens(self, tile_index: int) -> None:
         tokens = self._tile_token_order.get(tile_index)

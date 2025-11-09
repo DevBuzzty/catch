@@ -46,8 +46,18 @@ class CatchApp(tk.Tk):
         self._refresh_board()
         self._refresh_players()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(0, self._setup_fullscreen)
 
     # ------------------------------------------------------------------ UI
+    def _setup_fullscreen(self) -> None:  # pragma: no cover - UI behavior
+        try:
+            self.attributes("-fullscreen", True)
+        except tk.TclError:
+            try:
+                self.state("zoomed")
+            except tk.TclError:
+                pass
+
     def _create_menu(self) -> None:
         menu_bar = tk.Menu(self)
         file_menu = tk.Menu(menu_bar, tearoff=False)
@@ -81,11 +91,12 @@ class CatchApp(tk.Tk):
         container.pack(fill=tk.BOTH, expand=True)
 
         self.board_canvas = BoardCanvas(container, self.document.board)
-        self.board_canvas.pack(side=tk.LEFT, padx=10, pady=10)
+        self.board_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
         self.board_canvas.bind("<<TileSelected>>", self._on_tile_selected)
 
         sidebar = ttk.Frame(container, width=320)
-        sidebar.pack(side=tk.RIGHT, fill=tk.BOTH, padx=10, pady=10)
+        sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10)
+        sidebar.pack_propagate(False)
 
         self.turn_label = ttk.Label(sidebar, text="Am Zug: —", font=("Helvetica", 14, "bold"))
         self.turn_label.pack(fill=tk.X, pady=10)
@@ -151,7 +162,7 @@ class CatchApp(tk.Tk):
 
     def roll_dice(self) -> None:
         if not self.document.players:
-            messagebox.showinfo("Info", "Bitte legen Sie zuerst Spieler:innen an.")
+            messagebox.showinfo("Info", "Bitte legen Sie zuerst Spieler:innen an.", parent=self)
             return
         player = self.document.players[self.current_player_index]
         if player.finished:
@@ -188,7 +199,11 @@ class CatchApp(tk.Tk):
     def _present_puzzle(self, category: str, player: PlayerData, origin_index: int) -> None:
         selection = self.deck.next_for(category)
         if not selection:
-            messagebox.showinfo("Keine Rätsel", "Für diese Kategorie sind noch keine Inhalte vorhanden.")
+            messagebox.showinfo(
+                "Keine Rätsel",
+                "Für diese Kategorie sind noch keine Inhalte vorhanden.",
+                parent=self,
+            )
             self._advance_player()
             return
         handler = {
@@ -204,12 +219,13 @@ class CatchApp(tk.Tk):
 
     def _handle_result(self, player: PlayerData, correct: bool, origin_index: int) -> None:
         if correct:
-            messagebox.showinfo("Richtig!", "Sehr gut! Weiter geht's.")
+            messagebox.showinfo("Richtig!", "Sehr gut! Weiter geht's.", parent=self)
             self._advance_player()
         else:
             messagebox.showwarning(
                 "Falsch",
                 "Leider falsch. Die Figur geht auf das vorherige Feld zurück.",
+                parent=self,
             )
             player.position = origin_index
             player.finished = False
@@ -223,11 +239,15 @@ class CatchApp(tk.Tk):
         puzzle: PicturePuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
         window.title("Bild erraten")
+        window.transient(self)
+        window.grab_set()
+        window.resizable(False, False)
+        image_size = self._modal_image_size()
         try:
-            snippet = load_random_snippet(puzzle.full_path, size=(420, 420))
+            snippet = load_random_snippet(puzzle.full_path, size=(image_size, image_size))
         except FileNotFoundError:
             fallback = puzzle.snippet_path or puzzle.full_path
-            snippet = load_image(fallback, size=(420, 420))
+            snippet = load_image(fallback, size=(image_size, image_size))
         ttk.Label(window, image=snippet).pack(padx=10, pady=10)
         # Keep reference to prevent GC
         window._snippet = snippet  # type: ignore[attr-defined]
@@ -247,10 +267,11 @@ class CatchApp(tk.Tk):
             answer = entry.get()
             correct = self._normalize(answer) == self._normalize(puzzle.answer)
             if correct:
-                full_img = load_image(puzzle.full_path, size=(420, 420))
+                full_img = load_image(puzzle.full_path, size=(image_size, image_size))
                 ttk.Label(window, text="Richtig!", font=("Helvetica", 12, "bold")).pack(pady=5)
                 ttk.Label(window, image=full_img).pack(pady=5)
                 window._full = full_img  # type: ignore[attr-defined]
+                self._center_modal(window)
             delay = 2000 if correct else 200
             window.after(
                 delay,
@@ -259,6 +280,7 @@ class CatchApp(tk.Tk):
 
         ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", cancel)
+        self._center_modal(window)
 
     def _show_sound_puzzle(
         self, selection: PuzzleSelection, player: PlayerData, origin_index: int
@@ -266,6 +288,9 @@ class CatchApp(tk.Tk):
         puzzle: SoundPuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
         window.title("Geräusch erraten")
+        window.transient(self)
+        window.grab_set()
+        window.resizable(False, False)
         ttk.Label(window, text="Klick auf 'Abspielen' und gib dann deine Vermutung ein.").pack(padx=10, pady=10)
         entry = ttk.Entry(window, width=30)
         entry.pack(padx=10, pady=5)
@@ -278,7 +303,7 @@ class CatchApp(tk.Tk):
             try:
                 self.sound_player.play(puzzle.audio_path)
             except Exception as exc:  # pragma: no cover - hardware dependent
-                messagebox.showerror("Audio", str(exc))
+                messagebox.showerror("Audio", str(exc), parent=window)
 
         def submit() -> None:
             guess = entry.get()
@@ -293,6 +318,7 @@ class CatchApp(tk.Tk):
         ttk.Button(window, text="▶ Abspielen", command=play).pack(pady=5)
         ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", cancel)
+        self._center_modal(window)
 
     def _show_emoji_puzzle(
         self, selection: PuzzleSelection, player: PlayerData, origin_index: int
@@ -300,6 +326,9 @@ class CatchApp(tk.Tk):
         puzzle: EmojiPuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
         window.title("Emoji-Rätsel")
+        window.transient(self)
+        window.grab_set()
+        window.resizable(False, False)
         ttk.Label(window, text=puzzle.prompt, font=("Segoe UI Emoji", 24)).pack(padx=10, pady=10)
         entry = ttk.Entry(window, width=40)
         entry.pack(padx=10, pady=5)
@@ -316,6 +345,7 @@ class CatchApp(tk.Tk):
 
         ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", cancel)
+        self._center_modal(window)
 
     def _show_ai_puzzle(
         self, selection: PuzzleSelection, player: PlayerData, origin_index: int
@@ -323,15 +353,19 @@ class CatchApp(tk.Tk):
         puzzle: AIPuzzle = selection.payload  # type: ignore[assignment]
         window = tk.Toplevel(self)
         window.title("KI-Rätsel")
+        window.transient(self)
+        window.grab_set()
+        window.resizable(False, False)
         ttk.Label(window, text="Welches Bild wurde von KI erzeugt?", font=("Helvetica", 14, "bold")).pack(
             padx=10, pady=(10, 5)
         )
         container = ttk.Frame(window)
         container.pack(padx=10, pady=10)
 
+        image_size = self._modal_image_size()
         options = [
-            ("real", load_image(puzzle.real_path, size=(320, 320))),
-            ("ai", load_image(puzzle.ai_path, size=(320, 320))),
+            ("real", load_image(puzzle.real_path, size=(image_size, image_size))),
+            ("ai", load_image(puzzle.ai_path, size=(image_size, image_size))),
         ]
         random.shuffle(options)
         window._images = [img for _, img in options]  # type: ignore[attr-defined]
@@ -351,6 +385,7 @@ class CatchApp(tk.Tk):
 
         ttk.Button(window, text="Abbrechen", command=lambda: choose("none")).pack(pady=(0, 10))
         window.protocol("WM_DELETE_WINDOW", lambda: choose("none"))
+        self._center_modal(window)
 
     def _advance_player(self) -> None:
         if not self.document.players:
@@ -362,11 +397,15 @@ class CatchApp(tk.Tk):
     def edit_selected_tile(self) -> None:
         index = self.board_canvas.selected_index
         if index is None:
-            messagebox.showinfo("Auswahl", "Bitte klicken Sie zuerst auf ein Feld.")
+            messagebox.showinfo("Auswahl", "Bitte klicken Sie zuerst auf ein Feld.", parent=self)
             return
         tile = self.document.board.tile_at(index)
         if tile.category in {"start", "finish"}:
-            messagebox.showinfo("Hinweis", "Start- und Zielfelder können nicht bearbeitet werden.")
+            messagebox.showinfo(
+                "Hinweis",
+                "Start- und Zielfelder können nicht bearbeitet werden.",
+                parent=self,
+            )
             return
         TileEditDialog(self, tile)
         self._refresh_board()
@@ -383,10 +422,10 @@ class CatchApp(tk.Tk):
         try:
             stored = add_board_backgrounds(images)
         except Exception as exc:  # pragma: no cover - user feedback only
-            messagebox.showerror("Hintergründe", str(exc))
+            messagebox.showerror("Hintergründe", str(exc), parent=self)
             return
         if not stored:
-            messagebox.showinfo("Hintergründe", "Es wurden keine Bilder übernommen.")
+            messagebox.showinfo("Hintergründe", "Es wurden keine Bilder übernommen.", parent=self)
             return
         self._assign_backgrounds_randomly(stored)
         self._refresh_board()
@@ -394,6 +433,7 @@ class CatchApp(tk.Tk):
         messagebox.showinfo(
             "Hintergründe",
             "Die Bilder wurden kopiert und zufällig auf das Spielbrett verteilt.",
+            parent=self,
         )
 
     def _assign_backgrounds_randomly(self, backgrounds: List[str]) -> None:
@@ -411,6 +451,24 @@ class CatchApp(tk.Tk):
             assignments.extend(batch)
         for tile, background in zip(shuffled_tiles, assignments):
             tile.background = background
+
+    def _modal_image_size(self) -> int:
+        screen_w = max(self.winfo_screenwidth(), 1280)
+        screen_h = max(self.winfo_screenheight(), 720)
+        size_from_height = int(screen_h * 0.34)
+        size_from_width = int(screen_w * 0.28)
+        return max(260, min(size_from_height, size_from_width))
+
+    def _center_modal(self, window: tk.Toplevel) -> None:  # pragma: no cover - geometry helper
+        window.update_idletasks()
+        screen_w = window.winfo_screenwidth()
+        screen_h = window.winfo_screenheight()
+        width = min(window.winfo_width(), int(screen_w * 0.92))
+        height = min(window.winfo_height(), int(screen_h * 0.9))
+        x = max((screen_w - width) // 2, 0)
+        y = max((screen_h - height) // 2, 0)
+        window.geometry(f"{width}x{height}+{x}+{y}")
+        window.lift()
 
     # ---------------------------------------------------------------- Manage players
     def edit_players(self) -> None:
@@ -591,6 +649,7 @@ class CatchApp(tk.Tk):
         ttk.Button(button_frame, text="Emoji hinzufügen", command=add_emoji).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="KI-Rätsel hinzufügen", command=add_ai).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Markiertes Rätsel löschen", command=delete_selected).pack(side=tk.LEFT, padx=5)
+        self._center_modal(window)
 
     # ---------------------------------------------------------------- Cheer animation
     def _celebrate(self, player_name: str) -> None:
@@ -626,12 +685,12 @@ class CatchApp(tk.Tk):
 
     def save_template(self) -> None:
         export_template(self.document)
-        messagebox.showinfo("Vorlage", "Die aktuelle Konfiguration wurde als Vorlage gespeichert.")
+        messagebox.showinfo("Vorlage", "Die aktuelle Konfiguration wurde als Vorlage gespeichert.", parent=self)
 
     def reset_to_template(self) -> None:
         template_path = DATA_DIR / "template.json"
         if not template_path.exists():
-            messagebox.showerror("Vorlage", "Es wurde noch keine Vorlage gespeichert.")
+            messagebox.showerror("Vorlage", "Es wurde noch keine Vorlage gespeichert.", parent=self)
             return
         self.document = load_document(template_path)
         self.deck = PuzzleDeck(self.document.puzzles)
@@ -643,6 +702,11 @@ class CatchApp(tk.Tk):
         self._refresh_board()
         self._refresh_players()
         self.save()
+        messagebox.showinfo(
+            "Vorlage",
+            "Die Vorlage wurde geladen. Vergessen Sie nicht, danach zu speichern!",
+            parent=self,
+        )
 
     def show_about(self) -> None:
         messagebox.showinfo(
@@ -650,6 +714,7 @@ class CatchApp(tk.Tk):
             "Catch – ein anpassbares Spielbrett für die digitale Tafel.\n"
             "Laden Sie eigene Inhalte hoch, speichern Sie das Spiel und verteilen\n"
             "Sie den gesamten Ordner (inkl. data/) auf einen USB-Stick.",
+            parent=self,
         )
 
     def _on_close(self) -> None:

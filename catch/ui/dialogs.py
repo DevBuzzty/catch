@@ -4,10 +4,31 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 from pathlib import Path
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from ..models import PlayerData, TileData
 from ..storage import set_tile_background
+
+
+def center_window(window: tk.Toplevel, parent: Optional[tk.Misc] = None, margin: int = 40) -> None:
+    window.update_idletasks()
+    screen_w = window.winfo_screenwidth()
+    screen_h = window.winfo_screenheight()
+    width = min(window.winfo_width(), screen_w - margin)
+    height = min(window.winfo_height(), screen_h - margin)
+    if parent:
+        parent.update_idletasks()
+        base_x = parent.winfo_rootx()
+        base_y = parent.winfo_rooty()
+        base_w = parent.winfo_width()
+        base_h = parent.winfo_height()
+        x = max(base_x + (base_w - width) // 2, margin // 2)
+        y = max(base_y + (base_h - height) // 2, margin // 2)
+    else:
+        x = max((screen_w - width) // 2, margin // 2)
+        y = max((screen_h - height) // 2, margin // 2)
+    window.geometry(f"{width}x{height}+{x}+{y}")
+    window.lift()
 
 
 class PlayerSetupDialog(simpledialog.Dialog):
@@ -98,9 +119,13 @@ class TileEditDialog(simpledialog.Dialog):
             return
         try:
             set_tile_background(self.tile, Path(filename))
-            messagebox.showinfo("Gespeichert", "Hintergrund wurde kopiert und dem Feld zugewiesen.")
+            messagebox.showinfo(
+                "Gespeichert",
+                "Hintergrund wurde kopiert und dem Feld zugewiesen.",
+                parent=self,
+            )
         except Exception as exc:  # pragma: no cover - user feedback only
-            messagebox.showerror("Fehler", str(exc))
+            messagebox.showerror("Fehler", str(exc), parent=self)
 
 
 EMOJI_CHOICES = [
@@ -201,6 +226,7 @@ class EmojiKeyboard(tk.Toplevel):
         ttk.Button(self, text="Fertig", command=self.destroy).pack(pady=(10, 0))
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.after(0, lambda: center_window(self, parent))
 
     def _build_buttons(self) -> None:
         columns = 8
