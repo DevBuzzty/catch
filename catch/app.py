@@ -256,6 +256,7 @@ class CatchApp(tk.Tk):
 
         # Keep reference to prevent garbage collection and allow later updates
         window._current_image = snippet  # type: ignore[attr-defined]
+        window._solution_window = None  # type: ignore[attr-defined]
 
         entry = ttk.Entry(window, width=40)
         entry.pack(padx=10, pady=5)
@@ -269,6 +270,9 @@ class CatchApp(tk.Tk):
                 self.sound_player.stop()
             except Exception:
                 pass
+            solution_window = getattr(window, "_solution_window", None)
+            if solution_window and solution_window.winfo_exists():
+                solution_window.destroy()
             window.destroy()
             self._handle_result(player, False, origin_index)
 
@@ -278,18 +282,54 @@ class CatchApp(tk.Tk):
             if correct:
                 screen_w = max(self.winfo_screenwidth(), 1280)
                 screen_h = max(self.winfo_screenheight(), 720)
-                max_width = int(screen_w * 0.55)
-                max_height = int(screen_h * 0.6)
+                max_width = int(screen_w * 0.45)
+                max_height = int(screen_h * 0.65)
                 full_img = load_image(puzzle.full_path, size=(max_width, max_height))
                 status_label.config(text="Richtig!", font=("Helvetica", 12, "bold"))
-                snippet_label.config(image=full_img)
-                window._current_image = full_img  # type: ignore[attr-defined]
-                window.update_idletasks()
-                self._center_modal(window)
+
+                # Destroy a previous solution window if it still exists
+                solution_window = getattr(window, "_solution_window", None)
+                if solution_window and solution_window.winfo_exists():
+                    solution_window.destroy()
+
+                solution_window = tk.Toplevel(window)
+                solution_window.title("Auflösung")
+                solution_window.transient(window)
+                solution_window.resizable(False, False)
+
+                container = ttk.Frame(solution_window)
+                container.pack(padx=10, pady=10)
+
+                left_frame = ttk.Frame(container)
+                left_frame.pack(side=tk.LEFT, padx=(0, 10))
+                ttk.Label(left_frame, text="Ausschnitt").pack(anchor="center", pady=(0, 5))
+                snippet_preview = ttk.Label(left_frame, image=snippet)
+                snippet_preview.pack()
+
+                right_frame = ttk.Frame(container)
+                right_frame.pack(side=tk.LEFT)
+                ttk.Label(right_frame, text="Originalbild").pack(anchor="center", pady=(0, 5))
+                full_label = ttk.Label(right_frame, image=full_img)
+                full_label.pack()
+
+                # Keep references to prevent garbage collection
+                solution_window._snippet_image = snippet  # type: ignore[attr-defined]
+                solution_window._full_image = full_img  # type: ignore[attr-defined]
+
+                window._solution_window = solution_window  # type: ignore[attr-defined]
+                self._center_modal(solution_window)
+                solution_window.lift()
             delay = 2000 if correct else 200
             window.after(
                 delay,
-                lambda: (window.destroy(), self._handle_result(player, correct, origin_index)),
+                lambda: (
+                    (window._solution_window.destroy()  # type: ignore[attr-defined]
+                     if getattr(window, "_solution_window", None)
+                     and getattr(window, "_solution_window", None).winfo_exists()
+                     else None),
+                    window.destroy(),
+                    self._handle_result(player, correct, origin_index),
+                ),
             )
 
         ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
