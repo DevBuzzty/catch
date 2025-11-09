@@ -276,10 +276,15 @@ class CatchApp(tk.Tk):
             answer = entry.get()
             correct = self._normalize(answer) == self._normalize(puzzle.answer)
             if correct:
-                full_img = load_image(puzzle.full_path)
+                screen_w = max(self.winfo_screenwidth(), 1280)
+                screen_h = max(self.winfo_screenheight(), 720)
+                max_width = int(screen_w * 0.55)
+                max_height = int(screen_h * 0.6)
+                full_img = load_image(puzzle.full_path, size=(max_width, max_height))
                 status_label.config(text="Richtig!", font=("Helvetica", 12, "bold"))
                 snippet_label.config(image=full_img)
                 window._current_image = full_img  # type: ignore[attr-defined]
+                window.update_idletasks()
                 self._center_modal(window)
             delay = 2000 if correct else 200
             window.after(
