@@ -33,7 +33,8 @@ class CatchApp(tk.Tk):
         self.geometry("1280x840")
         self.minsize(1100, 720)
         self.document: GameDocument = load_document()
-        self.deck = PuzzleDeck(self.document.puzzles)
+        self._recent_categories: List[str] = []
+        self._reset_deck()
         self.sound_player = SoundPlayer()
         self.current_player_index: int = 0
         self.cheer_label: Optional[tk.Label] = None
@@ -197,7 +198,13 @@ class CatchApp(tk.Tk):
             self._advance_player()
 
     def _present_puzzle(self, category: str, player: PlayerData, origin_index: int) -> None:
+        requested = category
+        category = self._select_category(requested)
         selection = self.deck.next_for(category)
+        if not selection and category != requested:
+            selection = self.deck.next_for(requested)
+            if selection:
+                category = requested
         if not selection:
             messagebox.showinfo(
                 "Keine Rätsel",
@@ -206,6 +213,9 @@ class CatchApp(tk.Tk):
             )
             self._advance_player()
             return
+        self._recent_categories.append(category)
+        if len(self._recent_categories) > 2:
+            self._recent_categories = self._recent_categories[-2:]
         handler = {
             "picture": self._show_picture_puzzle,
             "sound": self._show_sound_puzzle,
@@ -213,6 +223,20 @@ class CatchApp(tk.Tk):
             "ai": self._show_ai_puzzle,
         }[category]
         handler(selection, player, origin_index)
+
+    def _select_category(self, requested: str) -> str:
+        recent = self._recent_categories[-2:]
+        if len(recent) == 2 and recent[0] == recent[1] == requested:
+            alternatives = [cat for cat in ("picture", "sound", "emoji", "ai") if cat != requested]
+            random.shuffle(alternatives)
+            for candidate in alternatives:
+                if self.deck.has_puzzles(candidate):
+                    return candidate
+        return requested
+
+    def _reset_deck(self) -> None:
+        self.deck = PuzzleDeck(self.document.puzzles)
+        self._recent_categories.clear()
 
     def _normalize(self, value: str) -> str:
         return value.strip().lower()
@@ -252,11 +276,10 @@ class CatchApp(tk.Tk):
         content.pack(padx=10, pady=10)
 
         snippet_label = ttk.Label(content, image=snippet)
-        snippet_label.pack(side=tk.LEFT)
+        snippet_label.pack()
 
         # Keep reference to prevent garbage collection and allow later updates
         window._current_image = snippet  # type: ignore[attr-defined]
-        window._solution_window = None  # type: ignore[attr-defined]
 
         entry = ttk.Entry(window, width=40)
         entry.pack(padx=10, pady=5)
@@ -266,13 +289,6 @@ class CatchApp(tk.Tk):
         status_label.pack(pady=(0, 5))
 
         def cancel() -> None:
-            try:
-                self.sound_player.stop()
-            except Exception:
-                pass
-            solution_window = getattr(window, "_solution_window", None)
-            if solution_window and solution_window.winfo_exists():
-                solution_window.destroy()
             window.destroy()
             self._handle_result(player, False, origin_index)
 
@@ -282,57 +298,27 @@ class CatchApp(tk.Tk):
             if correct:
                 screen_w = max(self.winfo_screenwidth(), 1280)
                 screen_h = max(self.winfo_screenheight(), 720)
-                max_width = int(screen_w * 0.45)
-                max_height = int(screen_h * 0.65)
+                max_width = int(screen_w * 0.48)
+                max_height = int(screen_h * 0.7)
                 full_img = load_image(puzzle.full_path, size=(max_width, max_height))
                 status_label.config(text="Richtig!", font=("Helvetica", 12, "bold"))
-
-                # Destroy a previous solution window if it still exists
-                solution_window = getattr(window, "_solution_window", None)
-                if solution_window and solution_window.winfo_exists():
-                    solution_window.destroy()
-
-                solution_window = tk.Toplevel(window)
-                solution_window.title("Auflösung")
-                solution_window.transient(window)
-                solution_window.resizable(False, False)
-
-                container = ttk.Frame(solution_window)
-                container.pack(padx=10, pady=10)
-
-                left_frame = ttk.Frame(container)
-                left_frame.pack(side=tk.LEFT, padx=(0, 10))
-                ttk.Label(left_frame, text="Ausschnitt").pack(anchor="center", pady=(0, 5))
-                snippet_preview = ttk.Label(left_frame, image=snippet)
-                snippet_preview.pack()
-
-                right_frame = ttk.Frame(container)
-                right_frame.pack(side=tk.LEFT)
-                ttk.Label(right_frame, text="Originalbild").pack(anchor="center", pady=(0, 5))
-                full_label = ttk.Label(right_frame, image=full_img)
-                full_label.pack()
-
-                # Keep references to prevent garbage collection
-                solution_window._snippet_image = snippet  # type: ignore[attr-defined]
-                solution_window._full_image = full_img  # type: ignore[attr-defined]
-
-                window._solution_window = solution_window  # type: ignore[attr-defined]
-                self._center_modal(solution_window)
-                solution_window.lift()
+                entry.config(state=tk.DISABLED)
+                submit_button.config(state=tk.DISABLED)
+                snippet_label.config(image=full_img)
+                window._current_image = full_img  # type: ignore[attr-defined]
+                window.update_idletasks()
+                self._center_modal(window)
             delay = 2000 if correct else 200
             window.after(
                 delay,
                 lambda: (
-                    (window._solution_window.destroy()  # type: ignore[attr-defined]
-                     if getattr(window, "_solution_window", None)
-                     and getattr(window, "_solution_window", None).winfo_exists()
-                     else None),
                     window.destroy(),
                     self._handle_result(player, correct, origin_index),
                 ),
             )
 
-        ttk.Button(window, text="Antwort prüfen", command=submit).pack(pady=10)
+        submit_button = ttk.Button(window, text="Antwort prüfen", command=submit)
+        submit_button.pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", cancel)
         self._center_modal(window)
 
@@ -634,7 +620,7 @@ class CatchApp(tk.Tk):
                 return
             add_picture_puzzle(self.document, answer, Path(full))
             refresh()
-            self.deck = PuzzleDeck(self.document.puzzles)
+            self._reset_deck()
             self.save()
 
         def add_sound() -> None:
@@ -649,7 +635,7 @@ class CatchApp(tk.Tk):
                 return
             add_sound_puzzle(self.document, answer, Path(audio))
             refresh()
-            self.deck = PuzzleDeck(self.document.puzzles)
+            self._reset_deck()
             self.save()
 
         def add_emoji() -> None:
@@ -662,7 +648,7 @@ class CatchApp(tk.Tk):
                 return
             add_emoji_puzzle(self.document, prompt, answer)
             refresh()
-            self.deck = PuzzleDeck(self.document.puzzles)
+            self._reset_deck()
             self.save()
 
         def add_ai() -> None:
@@ -682,7 +668,7 @@ class CatchApp(tk.Tk):
                 return
             add_ai_puzzle(self.document, Path(real_image), Path(ai_image))
             refresh()
-            self.deck = PuzzleDeck(self.document.puzzles)
+            self._reset_deck()
             self.save()
 
         def delete_selected() -> None:
@@ -695,7 +681,7 @@ class CatchApp(tk.Tk):
             items = self.document.puzzles.get(category, [])
             self.document.puzzles[category] = [item for item in items if item.id != puzzle_id]
             refresh()
-            self.deck = PuzzleDeck(self.document.puzzles)
+            self._reset_deck()
             self.save()
 
         ttk.Button(button_frame, text="Bildrätsel hinzufügen", command=add_picture).pack(side=tk.LEFT, padx=5)
@@ -747,7 +733,7 @@ class CatchApp(tk.Tk):
             messagebox.showerror("Vorlage", "Es wurde noch keine Vorlage gespeichert.", parent=self)
             return
         self.document = load_document(template_path)
-        self.deck = PuzzleDeck(self.document.puzzles)
+        self._reset_deck()
         for player in self.document.players:
             player.position = 0
             player.finished = False

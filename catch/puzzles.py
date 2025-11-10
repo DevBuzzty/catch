@@ -34,6 +34,12 @@ class PuzzleDeck:
         self._original = puzzles
         self._unused: Dict[str, List] = {key: list(value) for key, value in puzzles.items()}
 
+    def has_puzzles(self, category: str) -> bool:
+        """Return True if the category has at least one puzzle available."""
+        if self._unused.get(category):
+            return True
+        return bool(self._original.get(category))
+
     def next_for(self, category: str) -> Optional[PuzzleSelection]:
         options = self._unused.setdefault(category, [])
         if not options:
