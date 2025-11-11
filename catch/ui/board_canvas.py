@@ -76,7 +76,7 @@ class BoardCanvas(tk.Canvas):
         inner_height = self.board.rows * self.tile_size + (self.board.rows - 1) * self.gap_y
         self._board_width = self.margin_x * 2 + inner_width
         self._board_height = self.margin_y * 2 + inner_height
-        if self.winfo_exists():
+        if hasattr(self, "tk") and self.winfo_exists():
             self.config(scrollregion=(0, 0, self._board_width, self._board_height))
 
     def _on_canvas_configure(self, event: tk.Event) -> None:  # pragma: no cover - UI event
