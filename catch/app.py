@@ -21,7 +21,6 @@ from .models import (
 )
 from .puzzles import PuzzleDeck, PuzzleSelection, SoundPlayer, load_image, load_random_snippet
 from .storage import (
-    DATA_DIR,
     add_ai_puzzle,
     add_board_backgrounds,
     add_emoji_puzzle,
@@ -29,6 +28,7 @@ from .storage import (
     add_sound_puzzle,
     ensure_directories,
     export_template,
+    get_template_path,
     load_document,
     save_document,
 )
@@ -834,7 +834,7 @@ class CatchApp(tk.Tk):
         messagebox.showinfo("Vorlage", "Die aktuelle Konfiguration wurde als Vorlage gespeichert.", parent=self)
 
     def reset_to_template(self) -> None:
-        template_path = DATA_DIR / "template.json"
+        template_path = get_template_path()
         if not template_path.exists():
             messagebox.showerror("Vorlage", "Es wurde noch keine Vorlage gespeichert.", parent=self)
             return

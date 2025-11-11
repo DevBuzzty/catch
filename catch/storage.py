@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import random
 import shutil
+import sys
 import uuid
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -18,7 +19,20 @@ except AttributeError:  # pragma: no cover - depends on pillow version
 from .models import AIPuzzle, EmojiPuzzle, GameDocument, PicturePuzzle, SoundPuzzle, TileData, default_document
 
 
-DATA_DIR = Path("data")
+def _bundle_root() -> Path:
+    if getattr(sys, "frozen", False):  # pragma: no cover - runtime detection
+        return Path(getattr(sys, "_MEIPASS", Path.cwd()))
+    return Path(__file__).resolve().parent.parent
+
+
+def _runtime_root() -> Path:
+    if getattr(sys, "frozen", False):  # pragma: no cover - runtime detection
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+BUNDLE_DATA_DIR = _bundle_root() / "data"
+DATA_DIR = _runtime_root() / "data"
 MEDIA_DIR = DATA_DIR / "media"
 BOARD_BG_DIR = MEDIA_DIR / "board"
 PICTURE_SNIPPETS_DIR = MEDIA_DIR / "picture" / "snippets"
@@ -32,7 +46,26 @@ DEFAULT_SAVE = DATA_DIR / "game_state.json"
 TEMPLATE_FILE = DATA_DIR / "template.json"
 
 
+def initialize_data_dir() -> None:
+    """Ensure a writable data directory exists at runtime."""
+
+    if DATA_DIR.exists():
+        return
+
+    if getattr(sys, "frozen", False):  # pragma: no cover - depends on PyInstaller
+        source = BUNDLE_DATA_DIR
+        if source.exists() and source.resolve() != DATA_DIR.resolve():
+            try:
+                shutil.copytree(source, DATA_DIR)
+            except FileExistsError:  # pragma: no cover - race condition guard
+                pass
+            return
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def ensure_directories() -> None:
+    initialize_data_dir()
     for directory in [
         DATA_DIR,
         MEDIA_DIR,
@@ -60,13 +93,16 @@ def make_relative(path: Path) -> str:
 
 def load_document(path: Optional[Path] = None) -> GameDocument:
     ensure_directories()
-    target = path or (DEFAULT_SAVE if DEFAULT_SAVE.exists() else TEMPLATE_FILE)
+    if path:
+        target = path
+    else:
+        target = DEFAULT_SAVE if DEFAULT_SAVE.exists() else get_template_path()
     if target and target.exists():
         with target.open("r", encoding="utf-8") as handle:
             raw = json.load(handle)
         return GameDocument.from_dict(raw)
     document = default_document()
-    save_document(document, TEMPLATE_FILE)
+    save_document(document, target)
     return document
 
 
@@ -76,6 +112,22 @@ def save_document(document: GameDocument, path: Optional[Path] = None) -> None:
     payload = document.to_dict()
     with target.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, ensure_ascii=False)
+
+
+def get_template_path() -> Path:
+    """Return the runtime template path, copying from the bundle if needed."""
+
+    ensure_directories()
+    if TEMPLATE_FILE.exists():
+        return TEMPLATE_FILE
+
+    source = BUNDLE_DATA_DIR / "template.json"
+    if source.exists() and source.resolve() != TEMPLATE_FILE.resolve():
+        TEMPLATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(source, TEMPLATE_FILE)
+    elif not TEMPLATE_FILE.exists():
+        save_document(default_document(), TEMPLATE_FILE)
+    return TEMPLATE_FILE
 
 
 def copy_media(src: Path, dest_dir: Path) -> str:
