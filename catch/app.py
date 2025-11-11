@@ -1,13 +1,24 @@
 """Tkinter application for the Catch classroom board game."""
 from __future__ import annotations
 
+import math
 import random
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from pathlib import Path
 from typing import List, Optional
 
-from .models import AIPuzzle, EmojiPuzzle, GameDocument, PicturePuzzle, PlayerData, SoundPuzzle
+from .models import (
+    AIPuzzle,
+    BoardLayout,
+    EmojiPuzzle,
+    GameDocument,
+    PicturePuzzle,
+    PlayerData,
+    SoundPuzzle,
+    TileData,
+    PUZZLE_CATEGORIES,
+)
 from .puzzles import PuzzleDeck, PuzzleSelection, SoundPlayer, load_image, load_random_snippet
 from .storage import (
     DATA_DIR,
@@ -77,6 +88,7 @@ class CatchApp(tk.Tk):
         menu_bar.add_cascade(label="Bearbeiten", menu=edit_menu)
 
         board_menu = tk.Menu(menu_bar, tearoff=False)
+        board_menu.add_command(label="Feldanzahl festlegen…", command=self.configure_board_size)
         board_menu.add_command(label="Ausgewähltes Feld bearbeiten", command=self.edit_selected_tile)
         board_menu.add_command(label="Hintergründe hochladen", command=self.upload_board_backgrounds)
         menu_bar.add_cascade(label="Spielbrett", menu=board_menu)
@@ -196,6 +208,100 @@ class CatchApp(tk.Tk):
             self._present_puzzle(tile.category, player, origin_index)
         else:
             self._advance_player()
+
+    # ---------------------------------------------------------------- Board sizing
+    def configure_board_size(self) -> None:
+        current_total = len(self.document.board.tiles)
+        count = simpledialog.askinteger(
+            "Feldanzahl",
+            "Wie viele Spielfelder soll das Brett haben?",
+            initialvalue=current_total,
+            minvalue=4,
+            parent=self,
+        )
+        if count is None or count == current_total:
+            return
+        self._apply_board_size(count)
+
+    def _apply_board_size(self, tile_count: int) -> None:
+        old_board = self.document.board
+        rows, cols = self._grid_for_tile_count(tile_count)
+        start_background = old_board.tiles[0].background if old_board.tiles else None
+        finish_background = old_board.tiles[-1].background if old_board.tiles else None
+        backgrounds = [
+            tile.background
+            for tile in old_board.tiles
+            if tile.category not in {"start", "finish"} and tile.background
+        ]
+
+        old_tiles = {tile.index: tile for tile in old_board.tiles}
+        new_tiles: List[TileData] = []
+        for idx in range(tile_count):
+            if idx == 0:
+                new_tiles.append(TileData(index=idx, category="start", background=start_background))
+                continue
+            if idx == tile_count - 1:
+                new_tiles.append(TileData(index=idx, category="finish", background=finish_background))
+                continue
+
+            category = None
+            if idx in old_tiles:
+                previous = old_tiles[idx]
+                if previous.category not in {"start", "finish"}:
+                    category = previous.category
+            if category is None:
+                category = PUZZLE_CATEGORIES[(idx - 1) % len(PUZZLE_CATEGORIES)]
+            new_tiles.append(TileData(index=idx, category=category))
+
+        self.document.board = BoardLayout(rows=rows, cols=cols, tiles=new_tiles)
+        if backgrounds:
+            self._assign_backgrounds_randomly(backgrounds)
+
+        last_index = len(new_tiles) - 1
+        for player in self.document.players:
+            if player.position > last_index:
+                player.position = last_index
+            player.finished = player.position == last_index
+
+        finish_lookup = {player.name: player.finished for player in self.document.players}
+        new_finish_order: List[str] = [
+            name for name in self.document.finish_order if finish_lookup.get(name)
+        ]
+        for player in self.document.players:
+            if player.finished and player.name not in new_finish_order:
+                new_finish_order.append(player.name)
+        self.document.finish_order = new_finish_order
+        self._recent_categories.clear()
+        self.board_canvas.set_selected(None)
+        self._refresh_board()
+        self._refresh_players()
+        self.save()
+        messagebox.showinfo(
+            "Spielbrett",
+            "Die Anzahl der Felder wurde angepasst und das Spielbrett aktualisiert.",
+            parent=self,
+        )
+
+    @staticmethod
+    def _grid_for_tile_count(tile_count: int) -> tuple[int, int]:
+        if tile_count <= 0:
+            return (1, 1)
+        best_rows = 1
+        best_cols = tile_count
+        best_area = tile_count
+        best_diff = best_cols - best_rows
+        for rows in range(1, tile_count + 1):
+            cols = math.ceil(tile_count / rows)
+            area = rows * cols
+            diff = abs(cols - rows)
+            if area < best_area or (area == best_area and diff < best_diff):
+                best_rows = rows
+                best_cols = cols
+                best_area = area
+                best_diff = diff
+            if rows >= cols:
+                break
+        return best_rows, best_cols
 
     def _present_puzzle(self, category: str, player: PlayerData, origin_index: int) -> None:
         requested = category
