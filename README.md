@@ -33,16 +33,19 @@ data/            Alle spielrelevanten Daten und Medien
 ## Projekt lokal starten
 
 1. Python 3.10 oder neuer installieren.
-2. Abhängigkeiten installieren:
+2. (Windows, bequem) Führe einmal `setup_env.bat` aus. Das Skript legt bei Bedarf eine virtuelle Umgebung `.venv` an und
+   installiert automatisch alle Bibliotheken aus `requirements.txt` sowie PyInstaller.
+3. (Alternativ oder für macOS/Linux) Abhängigkeiten manuell installieren:
 
    ```bash
    python -m venv .venv
    .venv/Scripts/activate  # Windows
    source .venv/bin/activate  # macOS/Linux
    pip install -r requirements.txt
+   pip install pyinstaller
    ```
 
-3. Anwendung starten:
+4. Anwendung starten:
 
    ```bash
    python main.py
@@ -73,14 +76,8 @@ Alle Medien werden automatisch in die passenden Unterordner kopiert, sodass das 
 
 ## Spiel als Windows-Executable (.exe)
 
-1. Stellen Sie sicher, dass Sie die Abhängigkeiten installiert haben.
-2. Installieren Sie PyInstaller (falls noch nicht vorhanden):
-
-   ```bash
-   pip install pyinstaller
-   ```
-
-3. Bauen Sie die ausführbare Datei (alternativ können Sie die mitgelieferten Skripte `build_exe.bat` bzw. `build_exe.sh` verwenden):
+1. Stellen Sie sicher, dass Sie die Abhängigkeiten installiert haben. Unter Windows übernimmt dies `setup_env.bat` für Sie.
+2. Bauen Sie die ausführbare Datei (alternativ können Sie die mitgelieferten Skripte `build_exe.bat` bzw. `build_exe.sh` verwenden):
 
    ```bash
    pyinstaller --name CatchBoard --onefile --add-data "data;data" main.py
@@ -89,7 +86,7 @@ Alle Medien werden automatisch in die passenden Unterordner kopiert, sodass das 
    - `--add-data "data;data"` sorgt dafür, dass die Vorlagen und Medien mit in die `.exe` kopiert werden.
    - Die fertige Datei finden Sie anschließend im Ordner `dist/`.
 
-4. Kopieren Sie **den gesamten dist-Ordner** oder die erstellte `.exe` samt `data/`-Ordner auf einen USB-Stick. Die `.exe` funktioniert komplett offline.
+3. Kopieren Sie **den gesamten dist-Ordner** oder die erstellte `.exe` samt `data/`-Ordner auf einen USB-Stick. Die `.exe` funktioniert komplett offline.
 
 > Tipp: Wenn Sie das Spiel auf mehreren Rechnern nutzen möchten, kopieren Sie einfach den kompletten Projektordner auf jeden USB-Stick. Änderungen an Rätseln oder Spielständen landen ausschließlich im `data/`-Verzeichnis.
 
