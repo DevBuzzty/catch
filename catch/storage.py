@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import shutil
 import sys
@@ -98,20 +99,41 @@ def load_document(path: Optional[Path] = None) -> GameDocument:
     else:
         target = DEFAULT_SAVE if DEFAULT_SAVE.exists() else get_template_path()
     if target and target.exists():
-        with target.open("r", encoding="utf-8") as handle:
-            raw = json.load(handle)
+        try:
+            with target.open("r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+        except (json.JSONDecodeError, ValueError):
+            backup = target.with_suffix(target.suffix + ".bak") if target.suffix else target.with_name(target.name + ".bak")
+            try:
+                target.replace(backup)
+            except OSError:
+                pass
+            document = default_document()
+            save_document(document, target)
+            return document
         return GameDocument.from_dict(raw)
     document = default_document()
     save_document(document, target)
     return document
 
 
+def _temp_target(path: Path) -> Path:
+    if path.suffix:
+        return path.with_suffix(path.suffix + ".tmp")
+    return path.with_name(path.name + ".tmp")
+
+
 def save_document(document: GameDocument, path: Optional[Path] = None) -> None:
     ensure_directories()
     target = path or DEFAULT_SAVE
+    target.parent.mkdir(parents=True, exist_ok=True)
     payload = document.to_dict()
-    with target.open("w", encoding="utf-8") as handle:
+    temp_path = _temp_target(target)
+    with temp_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, ensure_ascii=False)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temp_path.replace(target)
 
 
 def get_template_path() -> Path:
