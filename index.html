@@ -202,6 +202,10 @@
         <div class="label-row"><span>Erfahrung</span><span id="xpText">0 / 100</span></div>
         <div class="bar xp"><span id="xpBar" style="transform: scaleX(0)"></span></div>
       </div>
+      <div class="stat-group">
+        <div class="label-row"><span>Gegner Basis</span><span id="enemyHpText">1000 / 1000</span></div>
+        <div class="bar hp"><span id="enemyHpBar" style="transform: scaleX(1)"></span></div>
+      </div>
       <div class="gold-badge" id="goldBadge">💰 250</div>
       <div class="age-pill" id="agePill">Steinzeit</div>
     </div>
@@ -230,6 +234,8 @@
     agePill: document.getElementById("agePill"),
     hpText: document.getElementById("hpText"),
     hpBar: document.getElementById("hpBar"),
+    enemyHpText: document.getElementById("enemyHpText"),
+    enemyHpBar: document.getElementById("enemyHpBar"),
     xpText: document.getElementById("xpText"),
     xpBar: document.getElementById("xpBar"),
     specialBtn: document.getElementById("specialBtn"),
@@ -239,6 +245,19 @@
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const lerp = (a, b, t) => a + (b - a) * t;
+  const drawRoundRect = (g, x, y, w, h, r) => {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.lineTo(x + w - r, y);
+    g.quadraticCurveTo(x + w, y, x + w, y + r);
+    g.lineTo(x + w, y + h - r);
+    g.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    g.lineTo(x + r, y + h);
+    g.quadraticCurveTo(x, y + h, x, y + h - r);
+    g.lineTo(x, y + r);
+    g.quadraticCurveTo(x, y, x + r, y);
+    g.closePath();
+  };
 
   const AGES = [
     {
@@ -455,8 +474,7 @@
         grd.addColorStop(0, "#33d2ff");
         grd.addColorStop(1, "#b36bff");
         g.fillStyle = grd;
-        g.beginPath();
-        g.roundRect(-60, 40, 120, 100, 18);
+        drawRoundRect(g, -60, 40, 120, 100, 18);
         g.fill();
         g.fillStyle = "rgba(255,255,255,0.25)";
         g.fillRect(-20, 30, 40, 110);
@@ -538,6 +556,7 @@
       this.target = opts.target;
       this.type = opts.type;
       this.damage = opts.damage;
+      this.side = opts.side ?? "player";
       this.gravity = opts.gravity ?? 600;
       this.speed = opts.speed ?? 420;
       this.radius = opts.radius ?? 6;
@@ -568,14 +587,14 @@
         this.vy += this.gravity * dt;
       }
       super.update(dt);
-      const enemy = game.findEnemyInRange({ x: this.x, y: this.y }, 16, false);
+      const enemy = game.findEnemyInRange({ x: this.x, y: this.y, side: this.side }, 16, false, this.side);
       if (enemy) {
         enemy.hit(this.damage, game);
         this.dead = true;
         for (let i = 0; i < 6; i++) game.spawnParticle(this.x, this.y, "#ff705e", 0.5, 4, 320);
         game.spawnFloating(`-${this.damage}`, this.x, this.y, "#ffd166");
         if (this.type === "aoe" || this.type === "beam") {
-          game.areaDamage(this.x, this.y, 60, this.damage * 0.6);
+          game.areaDamage(this.x, this.y, 60, this.damage * 0.6, this.side);
         }
       }
     }
@@ -621,11 +640,19 @@
       this.y = game.ground - 12 + bob;
 
       const target = game.findEnemyInRange(this, this.config.range, true);
+      const enemyBaseX = this.side === "player" ? game.width / devicePixelRatio - 90 : 90;
+      const baseDist = Math.abs(enemyBaseX - this.x);
       if (target && this.config.type !== "melee" ? this.distanceTo(target) <= this.config.range : this.distanceTo(target) <= this.config.range + 6) {
         this.vx = 0;
         if (this.attackCooldown <= 0) {
           this.attackCooldown = this.config.atkSpeed;
           this.attack(target, game);
+        }
+      } else if (!target && baseDist < this.config.range + 24) {
+        this.vx = 0;
+        if (this.attackCooldown <= 0) {
+          this.attackCooldown = this.config.atkSpeed;
+          game.damageBase(this.side, this.config.dmg);
         }
       } else {
         this.vx = (this.side === "player" ? 1 : -1) * this.config.speed * 80;
@@ -638,19 +665,19 @@
         game.spawnFloating(`-${this.config.dmg}`, target.x, target.y - 8, "#ffd166");
         for (let i = 0; i < 12; i++) game.spawnParticle(target.x, target.y - 8, "#ffc6c6", 0.35, 4, 320);
       } else if (this.config.type === "arc") {
-        game.projectiles.push(new Projectile({ x: this.x, y: this.y - 12, target, type: "arc", damage: this.config.dmg }));
+        game.projectiles.push(new Projectile({ x: this.x, y: this.y - 12, target, type: "arc", damage: this.config.dmg, side: this.side }));
       } else if (this.config.type === "ray") {
         game.spawnFloating(`-${this.config.dmg}`, target.x, target.y - 8, "#e3f2ff");
         target.hit(this.config.dmg, game);
         for (let i = 0; i < 6; i++) game.spawnParticle(target.x, target.y, "#9fe2ff", 0.4, 3, 120);
       } else if (this.config.type === "beam") {
         target.hit(this.config.dmg, game);
-        game.areaDamage(target.x, target.y, 70, this.config.dmg * 0.5);
+        game.areaDamage(target.x, target.y, 70, this.config.dmg * 0.5, this.side);
         game.spawnFloating("⚡", target.x, target.y, "#8ffcff");
       } else if (this.config.type === "aoe") {
-        game.projectiles.push(new Projectile({ x: this.x, y: this.y - 16, target, type: "aoe", radius: 8, damage: this.config.dmg }));
+        game.projectiles.push(new Projectile({ x: this.x, y: this.y - 16, target, type: "aoe", radius: 8, damage: this.config.dmg, side: this.side }));
       } else {
-        game.projectiles.push(new Projectile({ x: this.x, y: this.y - 12, target, type: "ray", speed: 620, damage: this.config.dmg }));
+        game.projectiles.push(new Projectile({ x: this.x, y: this.y - 12, target, type: "ray", speed: 620, damage: this.config.dmg, side: this.side }));
       }
     }
     distanceTo(target) {
@@ -667,8 +694,7 @@
       grad.addColorStop(0, "#f8f9fb");
       grad.addColorStop(1, tier.baseColor);
       g.fillStyle = grad;
-      g.beginPath();
-      g.roundRect(-w * 0.5, -h, w, h * 1.4, 6);
+      drawRoundRect(g, -w * 0.5, -h, w, h * 1.4, 6);
       g.fill();
       g.fillStyle = "rgba(0,0,0,0.35)";
       g.beginPath();
@@ -715,6 +741,8 @@
       this.xp = 0;
       this.maxHp = 1000;
       this.hp = 1000;
+      this.enemyMaxHp = 1000;
+      this.enemyHp = 1000;
       this.specialCooldown = 0;
       this.lastTime = 0;
       this.spawnTimer = 0;
@@ -777,7 +805,7 @@
         setTimeout(() => {
           const x = (0.4 + Math.random() * 0.5) * this.width / devicePixelRatio;
           const y = 0;
-          this.projectiles.push(new Projectile({ x, y, target: { x, y: this.ground }, type: "aoe", damage: 55, gravity: 720 }));
+          this.projectiles.push(new Projectile({ x, y, target: { x, y: this.ground }, type: "aoe", damage: 55, gravity: 720, side: "player" }));
         }, i * 180);
       }
     }
@@ -786,7 +814,7 @@
         setTimeout(() => {
           const target = this.findEnemyInRange({ x: this.width / (devicePixelRatio), y: this.ground }, 9999, true);
           const tx = target ? target.x : this.width / (devicePixelRatio * 2);
-          this.projectiles.push(new Projectile({ x: tx + (Math.random() - 0.5) * 80, y: -20, target: { x: tx, y: this.ground }, type: "arc", damage: 26 }));
+          this.projectiles.push(new Projectile({ x: tx + (Math.random() - 0.5) * 80, y: -20, target: { x: tx, y: this.ground }, type: "arc", damage: 26, side: "player" }));
         }, i * 90);
       }
     }
@@ -798,7 +826,7 @@
       for (let i = 0; i < 6; i++) {
         setTimeout(() => {
           const x = (0.5 + Math.random() * 0.3) * this.width / devicePixelRatio;
-          this.projectiles.push(new Projectile({ x, y: -30, target: { x, y: this.ground }, type: "aoe", damage: 70 }));
+          this.projectiles.push(new Projectile({ x, y: -30, target: { x, y: this.ground }, type: "aoe", damage: 70, side: "player" }));
         }, i * 140);
       }
     }
@@ -807,7 +835,7 @@
       const interval = setInterval(() => {
         const target = this.findEnemyInRange({ x: this.width / (devicePixelRatio * 2), y: this.ground }, 9999, true);
         if (!target || ticks > 6) return clearInterval(interval);
-        this.projectiles.push(new Projectile({ x: target.x, y: 20, target, type: "beam", damage: 90, speed: 1500 }));
+        this.projectiles.push(new Projectile({ x: target.x, y: 20, target, type: "beam", damage: 90, speed: 1500, side: "player" }));
         ticks++;
       }, 250);
     }
@@ -817,8 +845,9 @@
     spawnFloating(text, x, y, color) {
       this.floatings.push(new FloatingText(x, y, text, color));
     }
-    findEnemyInRange(source, range, preferClosest = true) {
-      const enemies = source.side === "player" ? this.enemyUnits : this.units;
+    findEnemyInRange(source, range, preferClosest = true, sideOverride = null) {
+      const side = sideOverride ?? source.side ?? "player";
+      const enemies = side === "player" ? this.enemyUnits : this.units;
       if (!enemies.length) return null;
       let candidate = enemies[0];
       let best = Math.abs(candidate.x - source.x);
@@ -830,12 +859,21 @@
       }
       return candidate;
     }
-    areaDamage(x, y, radius, dmg) {
-      const enemies = this.enemyUnits.concat(this.units);
+    areaDamage(x, y, radius, dmg, side = "player") {
+      const enemies = side === "player" ? this.enemyUnits : this.units;
       enemies.forEach(e => {
         if (Math.hypot(e.x - x, e.y - y) < radius) e.hit(dmg, this);
       });
       for (let i = 0; i < 16; i++) this.spawnParticle(x, y, "#ffbe76", 0.5, 5, 320);
+    }
+    damageBase(attackerSide, dmg) {
+      if (attackerSide === "player") {
+        this.enemyHp = clamp(this.enemyHp - dmg, 0, this.enemyMaxHp);
+        this.spawnParticle(this.width / devicePixelRatio - 110, this.ground - 40, "#ffab70", 0.6, 6, 240);
+      } else {
+        this.hp = clamp(this.hp - dmg, 0, this.maxHp);
+        this.spawnParticle(110, this.ground - 40, "#ff6b6b", 0.6, 6, 240);
+      }
     }
     spawnEnemy() {
       const tier = AGES[this.ageIndex];
@@ -859,8 +897,9 @@
       this.cleanup();
     }
     cleanup() {
-      this.units = this.units.filter(u => !u.dead && u.x < this.width / devicePixelRatio - 40);
-      this.enemyUnits = this.enemyUnits.filter(u => !u.dead && u.x > 40);
+      const margin = 80;
+      this.units = this.units.filter(u => !u.dead && u.x < this.width / devicePixelRatio + margin && u.x > -margin);
+      this.enemyUnits = this.enemyUnits.filter(u => !u.dead && u.x > -margin && u.x < this.width / devicePixelRatio + margin);
       this.projectiles = this.projectiles.filter(p => !p.dead);
       this.particles = this.particles.filter(p => !p.dead);
       this.floatings = this.floatings.filter(f => !f.dead);
@@ -884,21 +923,34 @@
     }
     drawParallax(age) {
       ctx.save();
-      ctx.strokeStyle = "rgba(0,0,0,0.12)";
-      ctx.lineWidth = 2;
       const w = this.width / devicePixelRatio;
-      for (let i = 0; i < 3; i++) {
+      const grd = ctx.createLinearGradient(0, this.ground - 40, 0, this.ground + 160);
+      grd.addColorStop(0, "rgba(30,24,18,0.8)");
+      grd.addColorStop(1, "rgba(15,12,10,0.95)");
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, this.ground - 40, w, 220);
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++) {
         ctx.beginPath();
-        ctx.moveTo(0, this.ground + i * 6);
-        ctx.lineTo(w, this.ground + i * 6);
+        ctx.moveTo(0, this.ground + i * 10);
+        ctx.lineTo(w, this.ground + i * 10);
         ctx.stroke();
       }
+      ctx.setLineDash([6, 10]);
+      ctx.beginPath();
+      ctx.moveTo(w * 0.5, this.ground - 30);
+      ctx.lineTo(w * 0.5, this.ground + 140);
+      ctx.stroke();
+      ctx.setLineDash([]);
       ctx.restore();
     }
     updateUI() {
       ui.goldBadge.textContent = `💰 ${Math.floor(this.gold)}`;
       ui.hpText.textContent = `${Math.floor(this.hp)} / ${this.maxHp}`;
       ui.hpBar.style.transform = `scaleX(${clamp(this.hp / this.maxHp, 0, 1)})`;
+      ui.enemyHpText.textContent = `${Math.floor(this.enemyHp)} / ${this.enemyMaxHp}`;
+      ui.enemyHpBar.style.transform = `scaleX(${clamp(this.enemyHp / this.enemyMaxHp, 0, 1)})`;
       const age = AGES[this.ageIndex];
       const xpNeeded = age.xp;
       ui.xpText.textContent = `${Math.floor(this.xp)} / ${xpNeeded}`;
