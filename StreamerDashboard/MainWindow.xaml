@@ -2,15 +2,11 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        xmlns:local="clr-namespace:StreamerDashboard"
         Title="Streamer Dashboard"
         Width="1400" Height="900"
         Background="#18181b"
-        WindowStyle="None"
-        ResizeMode="CanResize"
-        AllowsTransparency="False"
-        WindowStartupLocation="CenterScreen"
-        ShowInTaskbar="True"
-        Loaded="OnLoaded">
+        WindowStartupLocation="CenterScreen">
   <Window.Resources>
     <Color x:Key="BackgroundColor">#18181b</Color>
     <Color x:Key="PanelBackgroundColor">#1f1f23</Color>
@@ -40,7 +36,7 @@
       <Setter Property="Margin" Value="0,0,0,8" />
     </Style>
 
-    <DataTemplate DataType="{x:Type local:ChatMessage}" xmlns:local="clr-namespace:StreamerDashboard">
+    <DataTemplate DataType="{x:Type local:ChatMessage}">
       <StackPanel Orientation="Horizontal" Margin="0,2">
         <TextBlock Text="[" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" />
         <TextBlock Text="{Binding Timestamp}" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" />
@@ -51,7 +47,7 @@
       </StackPanel>
     </DataTemplate>
 
-    <DataTemplate DataType="{x:Type local:EventItem}" xmlns:local="clr-namespace:StreamerDashboard">
+    <DataTemplate DataType="{x:Type local:EventItem}">
       <Border Background="#232327" CornerRadius="6" Padding="10" Margin="0,0,0,8" BorderThickness="1" BorderBrush="{Binding AccentBrush}">
         <StackPanel>
           <TextBlock Text="{Binding Title}" Foreground="{StaticResource PrimaryTextBrush}" FontWeight="SemiBold" />
@@ -61,7 +57,7 @@
       </Border>
     </DataTemplate>
 
-    <DataTemplate DataType="{x:Type local:HypeTrainStatus}" xmlns:local="clr-namespace:StreamerDashboard">
+    <DataTemplate DataType="{x:Type local:HypeTrainStatus}">
       <Border Background="#232327" CornerRadius="6" Padding="12" Margin="0,0,0,12" BorderThickness="1.5" BorderBrush="{StaticResource HypeTrainBrush}">
         <StackPanel>
           <TextBlock Text="Active Hype Train" Foreground="{StaticResource HypeTrainBrush}" FontWeight="SemiBold" />
@@ -74,20 +70,16 @@
     </DataTemplate>
   </Window.Resources>
 
-  <WindowChrome.WindowChrome>
-    <WindowChrome CaptionHeight="0" ResizeBorderThickness="6" CornerRadius="8" GlassFrameThickness="0" />
-  </WindowChrome.WindowChrome>
-
   <Grid Background="{StaticResource BackgroundBrush}">
     <Grid.RowDefinitions>
-      <RowDefinition Height="36" />
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
 
-    <Border Grid.Row="0" Background="#121214" MouseLeftButtonDown="OnDragWindow">
-      <DockPanel LastChildFill="True">
-        <TextBlock Text="Streamer Dashboard" Foreground="{StaticResource PrimaryTextBrush}" VerticalAlignment="Center" Margin="12,0" FontWeight="SemiBold" />
-        <Button Content="✕" Width="36" Height="24" Margin="0,0,8,0" Background="Transparent" Foreground="{StaticResource SecondaryTextBrush}" BorderThickness="0" DockPanel.Dock="Right" Click="OnClose" />
+    <Border Grid.Row="0" Background="#121214" Padding="12">
+      <DockPanel>
+        <TextBlock Text="Streamer Dashboard" Foreground="{StaticResource PrimaryTextBrush}" FontWeight="SemiBold" />
+        <TextBlock Text="" Foreground="{StaticResource SecondaryTextBrush}" DockPanel.Dock="Right" />
       </DockPanel>
     </Border>
 
@@ -98,7 +90,16 @@
       </Grid.ColumnDefinitions>
 
       <Border Grid.Column="0" Style="{StaticResource PanelBorder}">
-        <wv2:WebView2 x:Name="StreamView" />
+        <Grid>
+          <wv2:WebView2 x:Name="StreamView" />
+          <TextBlock x:Name="StreamFallbackText"
+                     Text="Stream konnte nicht geladen werden. Stelle sicher, dass die WebView2 Runtime installiert ist."
+                     Foreground="{StaticResource SecondaryTextBrush}"
+                     TextWrapping="Wrap"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"
+                     Visibility="Collapsed" />
+        </Grid>
       </Border>
 
       <Grid Grid.Column="1">

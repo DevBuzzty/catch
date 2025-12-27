@@ -2,10 +2,10 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.IO;
 using System.Net.WebSockets;
 using System.Text;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
@@ -55,22 +55,49 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         InitializeComponent();
         DataContext = this;
 
-        _twitchClient = new TwitchClient();
+        Loaded += OnLoaded;
 
-        InitializeWebViewAsync();
-        InitializeTwitchClient();
+        _twitchClient = new TwitchClient();
 
         _webSocketReconnectTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(5)
         };
         _webSocketReconnectTimer.Tick += async (_, _) => await EnsureWebSocketConnectionAsync();
-        _webSocketReconnectTimer.Start();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    private async void InitializeWebViewAsync()
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        EnsureWindowVisible();
+
+        await InitializeWebViewAsync();
+        InitializeTwitchClient();
+
+        _webSocketReconnectTimer.Start();
+        await EnsureWebSocketConnectionAsync();
+    }
+
+    private void EnsureWindowVisible()
+    {
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        var workArea = SystemParameters.WorkArea;
+        if (Left < workArea.Left || Top < workArea.Top || Left > workArea.Right || Top > workArea.Bottom)
+        {
+            Left = workArea.Left + 50;
+            Top = workArea.Top + 50;
+        }
+
+        Activate();
+        Focus();
+    }
+
+    private async Task InitializeWebViewAsync()
     {
         try
         {
@@ -80,6 +107,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            StreamView.Visibility = Visibility.Collapsed;
+            StreamFallbackText.Visibility = Visibility.Visible;
             AddEventItem("WebView2 Error", ex.Message, Brushes.IndianRed);
         }
     }
@@ -132,7 +161,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             catch
             {
-                // Fallback to random color.
+                // fallback below
             }
         }
 
@@ -263,7 +292,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 case "HypeTrainStart":
                 case "HypeTrainUpdate":
-                    UpdateHypeTrain(data, eventName);
+                    UpdateHypeTrain(data);
                     break;
                 case "HypeTrainEnd":
                     Application.Current.Dispatcher.Invoke(() => ActiveHypeTrain = null);
@@ -280,7 +309,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
-    private void UpdateHypeTrain(JToken? data, string eventName)
+    private void UpdateHypeTrain(JToken? data)
     {
         if (data == null)
         {
@@ -375,30 +404,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         };
 
         Application.Current.Dispatcher.Invoke(() => EventItems.Insert(0, item));
-    }
-
-    private void OnDragWindow(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ChangedButton == MouseButton.Left)
-        {
-            DragMove();
-        }
-    }
-
-    private void OnClose(object sender, RoutedEventArgs e)
-    {
-        Close();
-    }
-
-    private void OnLoaded(object sender, RoutedEventArgs e)
-    {
-        if (WindowState == WindowState.Minimized)
-        {
-            WindowState = WindowState.Normal;
-        }
-
-        Activate();
-        Focus();
     }
 
     protected override void OnClosed(EventArgs e)
