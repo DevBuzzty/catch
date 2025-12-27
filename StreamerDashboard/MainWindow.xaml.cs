@@ -18,6 +18,7 @@ namespace StreamerDashboard;
 
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
+    private static readonly TimeSpan WebViewInitTimeout = TimeSpan.FromSeconds(10);
     private const string TwitchChannelName = "YOUR_CHANNEL_NAME";
     private const string TwitchUserName = "YOUR_BOT_USERNAME";
     private const string TwitchOAuthToken = "oauth:YOUR_OAUTH_TOKEN";
@@ -101,13 +102,26 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         try
         {
-            await StreamView.EnsureCoreWebView2Async();
+            var initTask = StreamView.EnsureCoreWebView2Async();
+            var completedTask = await Task.WhenAny(initTask, Task.Delay(WebViewInitTimeout));
+            if (completedTask != initTask)
+            {
+                StreamView.Visibility = Visibility.Collapsed;
+                StreamFallbackText.Text = "Stream konnte nicht initialisiert werden. Prüfe die WebView2 Runtime.";
+                StreamFallbackText.Visibility = Visibility.Visible;
+                AddEventItem("WebView2", "Initialisierung zeitüberschritten.", Brushes.IndianRed);
+                return;
+            }
+
+            await initTask;
             StreamView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             StreamView.Source = new Uri($"https://player.twitch.tv/?channel={TwitchChannelName}&parent=localhost&muted=false");
+            StreamFallbackText.Visibility = Visibility.Collapsed;
         }
         catch (Exception ex)
         {
             StreamView.Visibility = Visibility.Collapsed;
+            StreamFallbackText.Text = "Stream konnte nicht geladen werden. Stelle sicher, dass die WebView2 Runtime installiert ist.";
             StreamFallbackText.Visibility = Visibility.Visible;
             AddEventItem("WebView2 Error", ex.Message, Brushes.IndianRed);
         }

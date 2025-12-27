@@ -93,12 +93,12 @@
         <Grid>
           <wv2:WebView2 x:Name="StreamView" />
           <TextBlock x:Name="StreamFallbackText"
-                     Text="Stream konnte nicht geladen werden. Stelle sicher, dass die WebView2 Runtime installiert ist."
+                     Text="Stream wird initialisiert…"
                      Foreground="{StaticResource SecondaryTextBrush}"
                      TextWrapping="Wrap"
                      HorizontalAlignment="Center"
                      VerticalAlignment="Center"
-                     Visibility="Collapsed" />
+                     Visibility="Visible" />
         </Grid>
       </Border>
 
