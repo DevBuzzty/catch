@@ -1,0 +1,146 @@
+<Window x:Class="StreamerDashboard.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        xmlns:local="clr-namespace:StreamerDashboard"
+        Title="Streamer Dashboard"
+        Width="1400" Height="900"
+        Background="#18181b"
+        WindowStartupLocation="CenterScreen">
+  <Window.Resources>
+    <Color x:Key="BackgroundColor">#18181b</Color>
+    <Color x:Key="PanelBackgroundColor">#1f1f23</Color>
+    <Color x:Key="PrimaryTextColor">#efeff1</Color>
+    <Color x:Key="SecondaryTextColor">#adadb8</Color>
+    <Color x:Key="AccentColor">#9146ff</Color>
+    <Color x:Key="HypeTrainColor">#ff0062</Color>
+
+    <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}" />
+    <SolidColorBrush x:Key="PanelBackgroundBrush" Color="{StaticResource PanelBackgroundColor}" />
+    <SolidColorBrush x:Key="PrimaryTextBrush" Color="{StaticResource PrimaryTextColor}" />
+    <SolidColorBrush x:Key="SecondaryTextBrush" Color="{StaticResource SecondaryTextColor}" />
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="HypeTrainBrush" Color="{StaticResource HypeTrainColor}" />
+
+    <Style x:Key="PanelBorder" TargetType="Border">
+      <Setter Property="Background" Value="{StaticResource PanelBackgroundBrush}" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="12" />
+      <Setter Property="Margin" Value="8" />
+    </Style>
+
+    <Style x:Key="SectionHeader" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
+      <Setter Property="FontSize" Value="16" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+
+    <DataTemplate DataType="{x:Type local:ChatMessage}">
+      <StackPanel Orientation="Horizontal" Margin="0,2">
+        <TextBlock Text="[" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" />
+        <TextBlock Text="{Binding Timestamp}" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" />
+        <TextBlock Text="] " Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" />
+        <TextBlock Text="{Binding Username}" FontWeight="SemiBold" Foreground="{Binding UsernameBrush}" />
+        <TextBlock Text=": " Foreground="{StaticResource SecondaryTextBrush}" />
+        <TextBlock Text="{Binding Message}" Foreground="{StaticResource PrimaryTextBrush}" TextWrapping="Wrap" />
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="{x:Type local:EventItem}">
+      <Border Background="#232327" CornerRadius="6" Padding="10" Margin="0,0,0,8" BorderThickness="1" BorderBrush="{Binding AccentBrush}">
+        <StackPanel>
+          <TextBlock Text="{Binding Title}" Foreground="{StaticResource PrimaryTextBrush}" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding Description}" Foreground="{StaticResource SecondaryTextBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Timestamp}" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="0,6,0,0" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+
+    <DataTemplate DataType="{x:Type local:HypeTrainStatus}">
+      <Border Background="#232327" CornerRadius="6" Padding="12" Margin="0,0,0,12" BorderThickness="1.5" BorderBrush="{StaticResource HypeTrainBrush}">
+        <StackPanel>
+          <TextBlock Text="Active Hype Train" Foreground="{StaticResource HypeTrainBrush}" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding Level}" Foreground="{StaticResource PrimaryTextBrush}" Margin="0,4,0,0" />
+          <ProgressBar Height="10" Margin="0,6,0,0" Maximum="100" Value="{Binding Percent}" Foreground="{StaticResource HypeTrainBrush}" Background="#2a2a2f" />
+          <TextBlock Text="{Binding PercentText}" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,4,0,0" />
+          <TextBlock Text="{Binding Contributors}" Foreground="{StaticResource SecondaryTextBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+  </Window.Resources>
+
+  <Grid Background="{StaticResource BackgroundBrush}">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <Border Grid.Row="0" Background="#121214" Padding="12">
+      <DockPanel>
+        <TextBlock Text="Streamer Dashboard" Foreground="{StaticResource PrimaryTextBrush}" FontWeight="SemiBold" />
+        <TextBlock Text="" Foreground="{StaticResource SecondaryTextBrush}" DockPanel.Dock="Right" />
+      </DockPanel>
+    </Border>
+
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="3*" />
+        <ColumnDefinition Width="1*" />
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0" Style="{StaticResource PanelBorder}">
+        <Grid>
+          <wv2:WebView2 x:Name="StreamView" />
+          <TextBlock x:Name="StreamFallbackText"
+                     Text="Stream wird initialisiert…"
+                     Foreground="{StaticResource SecondaryTextBrush}"
+                     TextWrapping="Wrap"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"
+                     Visibility="Visible" />
+        </Grid>
+      </Border>
+
+      <Grid Grid.Column="1">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="2*" />
+          <RowDefinition Height="3*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Style="{StaticResource PanelBorder}">
+          <StackPanel>
+            <TextBlock Text="Events" Style="{StaticResource SectionHeader}" />
+            <ContentControl Content="{Binding ActiveHypeTrain}">
+              <ContentControl.Style>
+                <Style TargetType="ContentControl">
+                  <Setter Property="Visibility" Value="Visible" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding Content, RelativeSource={RelativeSource Self}}" Value="{x:Null}">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </ContentControl.Style>
+            </ContentControl>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding EventItems}" />
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Style="{StaticResource PanelBorder}">
+          <DockPanel>
+            <TextBlock Text="Chat" Style="{StaticResource SectionHeader}" DockPanel.Dock="Top" />
+            <ListBox x:Name="ChatListBox"
+                     ItemsSource="{Binding ChatMessages}"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Foreground="{StaticResource PrimaryTextBrush}"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+          </DockPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>
