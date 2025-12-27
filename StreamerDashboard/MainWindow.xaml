@@ -7,7 +7,10 @@
         Background="#18181b"
         WindowStyle="None"
         ResizeMode="CanResize"
-        AllowsTransparency="False">
+        AllowsTransparency="False"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True"
+        Loaded="OnLoaded">
   <Window.Resources>
     <Color x:Key="BackgroundColor">#18181b</Color>
     <Color x:Key="PanelBackgroundColor">#1f1f23</Color>

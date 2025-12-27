@@ -390,6 +390,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Close();
     }
 
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Activate();
+        Focus();
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         _webSocketCts?.Cancel();
