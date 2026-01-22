@@ -1,0 +1,28 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  listCards: (params) => ipcRenderer.invoke('cards:list', params),
+  getCard: (id) => ipcRenderer.invoke('cards:get', id),
+  upsertCard: (card) => ipcRenderer.invoke('cards:upsert', card),
+  deleteCard: (id) => ipcRenderer.invoke('cards:delete', id),
+  clearDetails: (id) => ipcRenderer.invoke('cards:clearDetails', id),
+  importCsv: (payload) => ipcRenderer.invoke('cards:importCsv', payload),
+  exportCsv: () => ipcRenderer.invoke('cards:exportCsv'),
+  pasteCards: (payload) => ipcRenderer.invoke('cards:paste', payload),
+  listDuplicates: () => ipcRenderer.invoke('duplicates:list'),
+  mergeDuplicate: (payload) => ipcRenderer.invoke('duplicates:merge', payload),
+  importDeckFromUrl: (payload) => ipcRenderer.invoke('decks:importFromUrl', payload),
+  listDecks: () => ipcRenderer.invoke('decks:list'),
+  getDeck: (id) => ipcRenderer.invoke('decks:get', id),
+  deleteDeck: (id) => ipcRenderer.invoke('decks:delete', id),
+  startFetchMissingDetails: () => ipcRenderer.invoke('jobs:startMissing'),
+  startFetchSelectedDetails: (ids) => ipcRenderer.invoke('jobs:startSelected', ids),
+  pauseJob: (jobId) => ipcRenderer.invoke('jobs:pause', jobId),
+  resumeJob: (jobId) => ipcRenderer.invoke('jobs:resume', jobId),
+  cancelJob: (jobId) => ipcRenderer.invoke('jobs:cancel', jobId),
+  getJobStatus: (jobId) => ipcRenderer.invoke('jobs:getStatus', jobId),
+  listJobs: () => ipcRenderer.invoke('jobs:list'),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  listLogs: () => ipcRenderer.invoke('logs:list')
+});

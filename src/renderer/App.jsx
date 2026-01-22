@@ -1,0 +1,606 @@
+import React, { useEffect, useMemo, useState } from 'react';
+
+const emptyCard = {
+  de_name: '',
+  passcode: '',
+  en_name: ''
+};
+
+const menuItems = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'decks', label: 'Decks' },
+  { id: 'duplicates', label: 'Duplicates' },
+  { id: 'jobs', label: 'Jobs' },
+  { id: 'settings', label: 'Settings' },
+  { id: 'logs', label: 'Logs' }
+];
+
+function App() {
+  const [cards, setCards] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [missingOnly, setMissingOnly] = useState(false);
+  const [activeCard, setActiveCard] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [job, setJob] = useState(null);
+  const [settings, setSettings] = useState({});
+  const [duplicates, setDuplicates] = useState([]);
+  const [activeMenu, setActiveMenu] = useState('dashboard');
+  const [decks, setDecks] = useState([]);
+  const [deckUrl, setDeckUrl] = useState('');
+  const [activeDeck, setActiveDeck] = useState(null);
+
+  const loadCards = async () => {
+    const result = await window.api.listCards({
+      search,
+      status: statusFilter,
+      missingDetails: missingOnly
+    });
+    setCards(result);
+  };
+
+  const loadLogs = async () => {
+    const result = await window.api.listLogs();
+    setLogs(result);
+  };
+
+  const loadSettings = async () => {
+    const result = await window.api.getSettings();
+    setSettings(result);
+  };
+
+  const loadDuplicates = async () => {
+    const result = await window.api.listDuplicates();
+    setDuplicates(result);
+  };
+
+  const loadDecks = async () => {
+    const result = await window.api.listDecks();
+    setDecks(result);
+  };
+
+  useEffect(() => {
+    loadCards();
+  }, [search, statusFilter, missingOnly]);
+
+  useEffect(() => {
+    loadLogs();
+    loadSettings();
+    loadDuplicates();
+    loadDecks();
+  }, []);
+
+  const handleSelect = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
+    );
+  };
+
+  const handleUpsert = async (card) => {
+    await window.api.upsertCard(card);
+    await loadCards();
+  };
+
+  const handleDelete = async (id) => {
+    await window.api.deleteCard(id);
+    if (activeCard?.id === id) setActiveCard(null);
+    await loadCards();
+  };
+
+  const handleImport = async () => {
+    const input = prompt('CSV Inhalt einfügen (Header: de_name, passcode, en_name)');
+    if (!input) return;
+    const rows = parseCsv(input);
+    await window.api.importCsv({ rows });
+    await loadCards();
+  };
+
+  const handleExport = async () => {
+    const data = await window.api.exportCsv();
+    const csv = toCsv(data);
+    navigator.clipboard.writeText(csv);
+    alert('CSV wurde in die Zwischenablage kopiert.');
+  };
+
+  const handlePasteNames = async () => {
+    const input = prompt('Kartennamen zeilenweise einfügen');
+    if (!input) return;
+    const lines = input.split('\n');
+    await window.api.pasteCards({ lines });
+    await loadCards();
+  };
+
+  const handleFetchMissing = async () => {
+    const jobId = await window.api.startFetchMissingDetails();
+    setJob({ id: jobId });
+  };
+
+  const handleFetchSelected = async () => {
+    if (selectedIds.length === 0) return;
+    const jobId = await window.api.startFetchSelectedDetails(selectedIds);
+    setJob({ id: jobId });
+  };
+
+  const handleFetchSingle = async (id) => {
+    const jobId = await window.api.startFetchSelectedDetails([id]);
+    setJob({ id: jobId });
+  };
+
+  const handleClearDetails = async (id) => {
+    await window.api.clearDetails(id);
+    await loadCards();
+  };
+
+  const refreshJob = async () => {
+    if (!job?.id) return;
+    const status = await window.api.getJobStatus(job.id);
+    setJob(status);
+  };
+
+  const handlePauseJob = async () => {
+    await window.api.pauseJob(job.id);
+    await refreshJob();
+  };
+
+  const handleResumeJob = async () => {
+    await window.api.resumeJob(job.id);
+    await refreshJob();
+  };
+
+  const handleCancelJob = async () => {
+    await window.api.cancelJob(job.id);
+    await refreshJob();
+  };
+
+  const handleSaveSettings = async () => {
+    await window.api.saveSettings(settings);
+    await loadSettings();
+  };
+
+  const handleImportDeck = async () => {
+    if (!deckUrl) return;
+    const result = await window.api.importDeckFromUrl({ url: deckUrl });
+    setDeckUrl('');
+    await loadDecks();
+    if (result?.deckId) {
+      const deckDetails = await window.api.getDeck(result.deckId);
+      setActiveDeck(deckDetails);
+    }
+  };
+
+  const handleSelectDeck = async (deckId) => {
+    const deckDetails = await window.api.getDeck(deckId);
+    setActiveDeck(deckDetails);
+  };
+
+  const handleDeleteDeck = async (deckId) => {
+    await window.api.deleteDeck(deckId);
+    if (activeDeck?.deck?.id === deckId) setActiveDeck(null);
+    await loadDecks();
+  };
+
+  const activeCardDetails = useMemo(() => {
+    if (!activeCard) return null;
+    return cards.find((card) => card.id === activeCard.id) || activeCard;
+  }, [activeCard, cards]);
+
+  const deckStats = useMemo(() => {
+    if (!activeDeck?.entries) return null;
+    const total = activeDeck.entries.reduce((sum, entry) => sum + entry.quantity, 0);
+    const owned = activeDeck.entries.reduce((sum, entry) => sum + (entry.owned ? entry.quantity : 0), 0);
+    return { total, owned, missing: total - owned };
+  }, [activeDeck]);
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="sidebar__brand">
+          <span className="brand__dot" />
+          <div>
+            <h1>YGO Card Manager</h1>
+            <p>Cardcluster only</p>
+          </div>
+        </div>
+        <nav className="sidebar__nav">
+          {menuItems.map((item) => (
+            <button
+              key={item.id}
+              className={activeMenu === item.id ? 'nav-item nav-item--active' : 'nav-item'}
+              onClick={() => setActiveMenu(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar__footer">v0.1 · Dark mode</div>
+      </aside>
+
+      <div className="content">
+        <header className="topbar">
+          <div>
+            <h2>{menuItems.find((item) => item.id === activeMenu)?.label}</h2>
+            <p>Manage your Yu-Gi-Oh inventory locally.</p>
+          </div>
+          <div className="topbar__actions">
+            <button className="ghost" onClick={loadCards}>Refresh</button>
+            <button className="primary" onClick={() => handleUpsert(emptyCard)}>Add Card</button>
+          </div>
+        </header>
+
+        {activeMenu === 'dashboard' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Inventory</h3>
+              <div className="panel__actions">
+                <button onClick={handleImport}>Import CSV</button>
+                <button onClick={handleExport}>Export CSV</button>
+                <button onClick={handlePasteNames}>Paste Names</button>
+                <button onClick={handleFetchMissing}>Fetch missing</button>
+                <button onClick={handleFetchSelected}>Fetch selected</button>
+              </div>
+            </div>
+
+            <section className="filters">
+              <input
+                placeholder="Search name or passcode"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                <option value="">All statuses</option>
+                <option value="OK_DETAILS">OK_DETAILS</option>
+                <option value="NOT_FOUND">NOT_FOUND</option>
+                <option value="ERROR">ERROR</option>
+                <option value="SKIP_DETAILS_PRESENT">SKIP_DETAILS_PRESENT</option>
+                <option value="NEED_INPUT">NEED_INPUT</option>
+                <option value="WARNING_PASSCODE_MISMATCH">WARNING_PASSCODE_MISMATCH</option>
+              </select>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={missingOnly}
+                  onChange={(event) => setMissingOnly(event.target.checked)}
+                />
+                Missing details
+              </label>
+            </section>
+
+            <main className="app__main">
+              <section className="table-section">
+                <table>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>DE</th>
+                      <th>Passcode</th>
+                      <th>EN</th>
+                      <th>Status</th>
+                      <th>Last fetched</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cards.map((card) => (
+                      <tr key={card.id} onClick={() => setActiveCard(card)}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(card.id)}
+                            onChange={() => handleSelect(card.id)}
+                          />
+                        </td>
+                        <td>{card.de_name}</td>
+                        <td>{card.passcode}</td>
+                        <td>{card.en_name}</td>
+                        <td>
+                          <span className={`status-pill status-pill--${card.status || 'UNKNOWN'}`}>
+                            {card.status || 'UNKNOWN'}
+                          </span>
+                        </td>
+                        <td>{card.last_fetched_at}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+
+              <section className="detail-section">
+                <h2>Detail</h2>
+                {activeCardDetails ? (
+                  <div className="detail-card fade-in">
+                    <label>
+                      DE Name
+                      <input
+                        value={activeCardDetails.de_name || ''}
+                        onChange={(event) =>
+                          setActiveCard({ ...activeCardDetails, de_name: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Passcode
+                      <input
+                        value={activeCardDetails.passcode || ''}
+                        onChange={(event) =>
+                          setActiveCard({ ...activeCardDetails, passcode: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label>
+                      EN Name
+                      <input
+                        value={activeCardDetails.en_name || ''}
+                        onChange={(event) =>
+                          setActiveCard({ ...activeCardDetails, en_name: event.target.value })
+                        }
+                      />
+                    </label>
+
+                    <div className="detail-actions">
+                      <button className="primary" onClick={() => handleUpsert(activeCardDetails)}>Save</button>
+                      <button className="ghost" onClick={() => handleDelete(activeCardDetails.id)}>Delete</button>
+                      <button onClick={() => handleFetchSingle(activeCardDetails.id)}>Details neu laden</button>
+                      <button onClick={() => handleClearDetails(activeCardDetails.id)}>Clear details</button>
+                    </div>
+
+                    <div className="detail-fields">
+                      <p>Status: {activeCardDetails.status}</p>
+                      <p>Cardcluster URL: {activeCardDetails.cardcluster_url}</p>
+                      <p>Kind: {activeCardDetails.card_kind}</p>
+                      <p>Subtypes: {activeCardDetails.card_subtypes}</p>
+                      <p>Attribute: {activeCardDetails.attribute}</p>
+                      <p>Level/Rank: {activeCardDetails.level_or_rank}</p>
+                      <p>Link Rating: {activeCardDetails.link_rating}</p>
+                      <p>Race: {activeCardDetails.race}</p>
+                      <p>ATK: {activeCardDetails.atk}</p>
+                      <p>DEF: {activeCardDetails.def}</p>
+                      <p>Pendulum Scale: {activeCardDetails.pendulum_scale}</p>
+                      <p>Spell/Trap Property: {activeCardDetails.spell_trap_property}</p>
+                      <p>Effect (EN): {activeCardDetails.effect_text_en}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p>Select a card to view details.</p>
+                )}
+              </section>
+            </main>
+          </section>
+        )}
+
+        {activeMenu === 'decks' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Deck Import</h3>
+              <div className="panel__actions">
+                <input
+                  className="deck-url"
+                  placeholder="Cardcluster Deck URL"
+                  value={deckUrl}
+                  onChange={(event) => setDeckUrl(event.target.value)}
+                />
+                <button className="primary" onClick={handleImportDeck}>Import Deck</button>
+              </div>
+            </div>
+
+            <div className="deck-grid">
+              <div className="deck-list">
+                <h4>Decks</h4>
+                {decks.length === 0 ? (
+                  <p>No decks imported yet.</p>
+                ) : (
+                  <ul>
+                    {decks.map((deck) => (
+                      <li key={deck.id} className={activeDeck?.deck?.id === deck.id ? 'deck-item active' : 'deck-item'}>
+                        <button onClick={() => handleSelectDeck(deck.id)}>{deck.name}</button>
+                        <span>{deck.total_cards} cards</span>
+                        <button className="ghost" onClick={() => handleDeleteDeck(deck.id)}>Delete</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="deck-details">
+                {activeDeck ? (
+                  <div>
+                    <div className="deck-header">
+                      <div>
+                        <h4>{activeDeck.deck.name}</h4>
+                        <p>{activeDeck.deck.cardcluster_url}</p>
+                      </div>
+                      {deckStats && (
+                        <div className="deck-stats">
+                          <span className="status-pill status-pill--OK_DETAILS">Owned {deckStats.owned}</span>
+                          <span className="status-pill status-pill--NOT_FOUND">Missing {deckStats.missing}</span>
+                          <span className="status-pill">Total {deckStats.total}</span>
+                        </div>
+                      )}
+                    </div>
+                    <table className="deck-table">
+                      <thead>
+                        <tr>
+                          <th>Card</th>
+                          <th>Passcode</th>
+                          <th>Qty</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeDeck.entries.map((entry) => (
+                          <tr key={entry.id} className={entry.owned ? 'owned' : 'missing'}>
+                            <td>{entry.card_name}</td>
+                            <td>{entry.passcode}</td>
+                            <td>{entry.quantity}</td>
+                            <td>
+                              <span className={`status-pill ${entry.owned ? 'status-pill--OK_DETAILS' : 'status-pill--NOT_FOUND'}`}>
+                                {entry.owned ? 'Owned' : 'Missing'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p>Select a deck to view details.</p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeMenu === 'duplicates' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Duplicates</h3>
+              <button onClick={loadDuplicates}>Refresh list</button>
+            </div>
+            {duplicates.length === 0 ? (
+              <p>No duplicates found.</p>
+            ) : (
+              duplicates.map((group, idx) => (
+                <div key={idx} className="duplicate-group">
+                  <p>Group {idx + 1}</p>
+                  <ul>
+                    {group.map((card) => (
+                      <li key={card.id}>
+                        #{card.id} {card.de_name} / {card.en_name} ({card.passcode})
+                        {group[0].id !== card.id && (
+                          <button
+                            onClick={async () => {
+                              await window.api.mergeDuplicate({ keepId: group[0].id, mergeId: card.id });
+                              await loadCards();
+                              await loadDuplicates();
+                            }}
+                          >
+                            Merge into #{group[0].id}
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            )}
+          </section>
+        )}
+
+        {activeMenu === 'jobs' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Job Status</h3>
+              <button onClick={refreshJob}>Refresh</button>
+            </div>
+            {job ? (
+              <div>
+                <p>Job #{job.id}</p>
+                <p>Status: {job.status}</p>
+                <p>
+                  Progress: {job.done}/{job.total}
+                </p>
+                <progress value={job.done || 0} max={job.total || 1} />
+                <p>Last error: {job.last_error}</p>
+                <div className="job-actions">
+                  <button onClick={handlePauseJob}>Pause</button>
+                  <button onClick={handleResumeJob}>Resume</button>
+                  <button onClick={handleCancelJob}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <p>No active job.</p>
+            )}
+          </section>
+        )}
+
+        {activeMenu === 'settings' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Settings</h3>
+              <button className="primary" onClick={handleSaveSettings}>Save settings</button>
+            </div>
+            <div className="settings-grid">
+              <label>
+                batch_size
+                <input
+                  value={settings.batch_size || ''}
+                  onChange={(event) => setSettings({ ...settings, batch_size: event.target.value })}
+                />
+              </label>
+              <label>
+                concurrency
+                <input
+                  value={settings.concurrency || ''}
+                  onChange={(event) => setSettings({ ...settings, concurrency: event.target.value })}
+                />
+              </label>
+              <label>
+                request_delay_ms
+                <input
+                  value={settings.request_delay_ms || ''}
+                  onChange={(event) => setSettings({ ...settings, request_delay_ms: event.target.value })}
+                />
+              </label>
+              <label>
+                user_agent
+                <input
+                  value={settings.user_agent || ''}
+                  onChange={(event) => setSettings({ ...settings, user_agent: event.target.value })}
+                />
+              </label>
+              <label>
+                max_candidates_passcode_match
+                <input
+                  value={settings.max_candidates_passcode_match || ''}
+                  onChange={(event) =>
+                    setSettings({ ...settings, max_candidates_passcode_match: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+          </section>
+        )}
+
+        {activeMenu === 'logs' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Logs</h3>
+              <button onClick={loadLogs}>Refresh</button>
+            </div>
+            <div className="log-panel">
+              {logs.map((log) => (
+                <div key={log.id}>
+                  [{log.created_at}] {log.level}: {log.message}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function parseCsv(input) {
+  const lines = input.trim().split(/\r?\n/);
+  const header = lines.shift().split(',').map((item) => item.trim());
+  return lines.map((line) => {
+    const values = line.split(',');
+    const row = {};
+    header.forEach((key, idx) => {
+      row[key] = values[idx] ? values[idx].trim() : '';
+    });
+    return row;
+  });
+}
+
+function toCsv(rows) {
+  if (!rows.length) return '';
+  const header = Object.keys(rows[0]);
+  const lines = [header.join(',')];
+  rows.forEach((row) => {
+    lines.push(header.map((key) => JSON.stringify(row[key] ?? '')).join(','));
+  });
+  return lines.join('\n');
+}
+
+export default App;
