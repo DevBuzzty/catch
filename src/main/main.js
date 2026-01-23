@@ -1,3 +1,4 @@
+const { File } = require('node:buffer');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { ensureDatabase } = require('./db');
@@ -6,6 +7,10 @@ const { initLogger } = require('./logger');
 const { JobRunner } = require('./jobRunner');
 
 const isDev = process.env.NODE_ENV === 'development';
+
+if (!global.File) {
+  global.File = File;
+}
 
 let mainWindow;
 let jobRunner;
