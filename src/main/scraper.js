@@ -1,6 +1,7 @@
 const cheerio = require('cheerio');
 
 const SEARCH_BASE = 'https://cardcluster.com/cards?q=';
+const YGOPRO_BASE = 'https://db.ygoprodeck.com/api/v7/cardinfo.php';
 
 function normalizeString(value) {
   if (!value) return '';
@@ -108,6 +109,8 @@ function mapCardDetails(cardObj) {
   const levelOrRank = cardObj.level || cardObj.rank || null;
 
   return {
+    data_source: cardObj.data_source || null,
+    source_url: cardObj.source_url || null,
     cardcluster_url: cardObj.url || null,
     card_kind: kind || null,
     card_subtypes: subtypes || null,
@@ -163,6 +166,18 @@ async function fetchHtml(url, userAgent) {
   return response.text();
 }
 
+async function fetchJson(url, userAgent) {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': userAgent
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} for ${url}`);
+  }
+  return response.json();
+}
+
 async function searchCardUrl(query, userAgent) {
   const url = `${SEARCH_BASE}${encodeURIComponent(query)}`;
   const html = await fetchHtml(url, userAgent);
@@ -188,6 +203,39 @@ async function resolveCardUrlForPasscode(passcode, userAgent, maxCandidates) {
 }
 
 async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCandidates }) {
+  const cardclusterResult = await fetchFromCardcluster({
+    passcode,
+    en_name,
+    de_name,
+    userAgent,
+    maxCandidates
+  });
+
+  if (cardclusterResult.status === 'OK_DETAILS') {
+    return cardclusterResult;
+  }
+
+  const ygoproResult = await fetchFromYgoProDeck({
+    passcode,
+    en_name,
+    de_name,
+    userAgent
+  });
+
+  if (ygoproResult.status === 'OK_DETAILS') {
+    return ygoproResult;
+  }
+
+  return {
+    status: 'NOT_FOUND',
+    cardUrl: null,
+    cardDetails: null,
+    searchVariant: cardclusterResult.searchVariant || ygoproResult.searchVariant || null,
+    source: 'none'
+  };
+}
+
+async function fetchFromCardcluster({ passcode, en_name, de_name, userAgent, maxCandidates }) {
   const normalizedPasscode = normalizeString(passcode);
   const normalizedEn = normalizeString(en_name);
   const normalizedDe = normalizeString(de_name);
@@ -213,7 +261,7 @@ async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCand
   }
 
   if (!cardUrl) {
-    return { status: 'NOT_FOUND', cardUrl: null, cardDetails: null, searchVariant };
+    return { status: 'NOT_FOUND', cardUrl: null, cardDetails: null, searchVariant, source: 'cardcluster' };
   }
 
   const detailHtml = await fetchHtml(cardUrl, userAgent);
@@ -222,8 +270,73 @@ async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCand
   if (!cardObj) {
     throw new Error('Card object not found in NEXT_DATA');
   }
-  const mapped = mapCardDetails({ ...cardObj, url: cardUrl });
-  return { status: 'OK_DETAILS', cardUrl, cardDetails: mapped, searchVariant };
+  const mapped = mapCardDetails({ ...cardObj, url: cardUrl, data_source: 'cardcluster', source_url: cardUrl });
+  return { status: 'OK_DETAILS', cardUrl, cardDetails: mapped, searchVariant, source: 'cardcluster' };
+}
+
+async function fetchFromYgoProDeck({ passcode, en_name, de_name, userAgent }) {
+  const normalizedPasscode = normalizeString(passcode);
+  const normalizedEn = normalizeString(en_name);
+  const normalizedDe = normalizeString(de_name);
+
+  let url = null;
+  let searchVariant = null;
+
+  if (normalizedPasscode) {
+    searchVariant = 'passcode';
+    url = `${YGOPRO_BASE}?id=${encodeURIComponent(normalizedPasscode)}`;
+  } else if (normalizedEn) {
+    searchVariant = 'en_name';
+    url = `${YGOPRO_BASE}?name=${encodeURIComponent(normalizedEn)}`;
+  } else if (normalizedDe) {
+    searchVariant = 'de_name';
+    url = `${YGOPRO_BASE}?name=${encodeURIComponent(normalizedDe)}`;
+  }
+
+  if (!url) {
+    return { status: 'NOT_FOUND', cardUrl: null, cardDetails: null, searchVariant, source: 'ygoprodeck' };
+  }
+
+  try {
+    const data = await fetchJson(url, userAgent);
+    const card = data?.data?.[0];
+    if (!card) {
+      return { status: 'NOT_FOUND', cardUrl: null, cardDetails: null, searchVariant, source: 'ygoprodeck' };
+    }
+    const mapped = mapYgoProCard(card);
+    return { status: 'OK_DETAILS', cardUrl: mapped.source_url, cardDetails: mapped, searchVariant, source: 'ygoprodeck' };
+  } catch (error) {
+    if (String(error.message || '').includes('HTTP 400')) {
+      return { status: 'NOT_FOUND', cardUrl: null, cardDetails: null, searchVariant, source: 'ygoprodeck' };
+    }
+    throw error;
+  }
+}
+
+function mapYgoProCard(cardObj) {
+  const typeText = cardObj.type || '';
+  const kind = typeText.includes('Spell') ? 'Spell' : typeText.includes('Trap') ? 'Trap' : 'Monster';
+  const typeParts = typeText.split(' / ');
+  const subtypes = typeParts.length > 1 ? typeParts.slice(1).join(', ') : typeText;
+  const levelOrRank = cardObj.level || cardObj.rank || null;
+
+  return {
+    data_source: 'ygoprodeck',
+    source_url: cardObj.card_images?.[0]?.image_url || null,
+    cardcluster_url: null,
+    card_kind: kind || null,
+    card_subtypes: subtypes || null,
+    attribute: cardObj.attribute || null,
+    level_or_rank: levelOrRank ? Number(levelOrRank) : null,
+    link_rating: cardObj.linkval ? Number(cardObj.linkval) : null,
+    race: cardObj.race || null,
+    atk: cardObj.atk !== null && cardObj.atk !== undefined ? Number(cardObj.atk) : null,
+    def: cardObj.def !== null && cardObj.def !== undefined ? Number(cardObj.def) : null,
+    pendulum_scale: cardObj.scale ? Number(cardObj.scale) : null,
+    spell_trap_property: cardObj.race || null,
+    effect_text_en: cardObj.desc || null,
+    passcode: cardObj.id ? String(cardObj.id) : null
+  };
 }
 
 async function fetchDeckFromUrl(url, userAgent) {
@@ -250,5 +363,8 @@ module.exports = {
   mapDeckCards,
   fetchCardDetails,
   fetchDeckFromUrl,
-  resolveCardUrlForPasscode
+  resolveCardUrlForPasscode,
+  fetchFromCardcluster,
+  fetchFromYgoProDeck,
+  mapYgoProCard
 };

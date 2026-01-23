@@ -24,7 +24,9 @@ function ensureDatabase(basePath) {
       created_at TEXT,
       updated_at TEXT,
       last_fetched_at TEXT,
+      data_source TEXT,
       cardcluster_url TEXT,
+      source_url TEXT,
       card_kind TEXT,
       card_subtypes TEXT,
       attribute TEXT,
@@ -50,6 +52,7 @@ function ensureDatabase(basePath) {
       done INTEGER,
       errors INTEGER,
       current_card_id INTEGER,
+      current_action TEXT,
       last_error TEXT,
       created_at TEXT,
       updated_at TEXT
@@ -94,6 +97,9 @@ function ensureDatabase(basePath) {
   `);
 
   ensureColumn(db, 'cards', 'import_batch_id', 'INTEGER');
+  ensureColumn(db, 'cards', 'data_source', 'TEXT');
+  ensureColumn(db, 'cards', 'source_url', 'TEXT');
+  ensureColumn(db, 'jobs', 'current_action', 'TEXT');
 
   const insertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
   Object.entries(DEFAULT_SETTINGS).forEach(([key, value]) => {

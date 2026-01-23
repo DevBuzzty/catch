@@ -84,6 +84,8 @@ class JobRunner {
     const detail = result.cardDetails;
     const passcodeMismatch = detail.passcode && card.passcode && detail.passcode !== card.passcode;
     const newPasscode = card.passcode || detail.passcode || null;
+    const dataSource = detail.data_source || null;
+    const sourceUrl = detail.source_url || detail.cardcluster_url || null;
 
     const status = passcodeMismatch ? CARD_STATUSES.WARNING_PASSCODE_MISMATCH : CARD_STATUSES.OK_DETAILS;
     this.db.prepare(`
@@ -92,7 +94,9 @@ class JobRunner {
         status = ?,
         updated_at = ?,
         last_fetched_at = ?,
+        data_source = ?,
         cardcluster_url = ?,
+        source_url = ?,
         card_kind = ?,
         card_subtypes = ?,
         attribute = ?,
@@ -112,7 +116,9 @@ class JobRunner {
       status,
       now,
       now,
+      dataSource,
       detail.cardcluster_url,
+      sourceUrl,
       detail.card_kind,
       detail.card_subtypes,
       detail.attribute,
@@ -169,6 +175,14 @@ class JobRunner {
       for (let index = 0; index < batch.length; index += concurrency) {
         const group = batch.slice(index, index + concurrency);
         const cards = group.map((id) => this.db.prepare('SELECT * FROM cards WHERE id = ?').get(id));
+        cards.forEach((card) => {
+          if (!card) return;
+          const label = card.de_name || card.en_name || card.passcode || `Card ${card.id}`;
+          this.updateJob(jobId, {
+            current_card_id: card.id,
+            current_action: `Fetching ${label}`
+          });
+        });
         const results = await Promise.all(
           cards.map((card) =>
             this.processCard(card, settings, force).catch((error) => ({ error, status: CARD_STATUSES.ERROR }))
@@ -201,7 +215,7 @@ class JobRunner {
 
     const finalJob = this.db.prepare('SELECT * FROM jobs WHERE id = ?').get(jobId);
     if (finalJob.status === JOB_STATUSES.RUNNING && cursor >= cardIds.length) {
-      this.updateJob(jobId, { status: JOB_STATUSES.COMPLETED });
+      this.updateJob(jobId, { status: JOB_STATUSES.COMPLETED, current_action: null });
     }
 
     this.activeJobs.delete(jobId);

@@ -307,6 +307,13 @@ function App() {
     setSelectedIds(ids);
   };
 
+  const activeJobMessage = useMemo(() => {
+    if (job?.status !== 'RUNNING') return '';
+    if (job?.current_action) return job.current_action;
+    if (job?.current_card_id) return `Fetching card #${job.current_card_id}`;
+    return 'Fetching cards…';
+  }, [job]);
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -314,7 +321,7 @@ function App() {
           <span className="brand__dot" />
           <div>
             <h1>YGO Card Manager</h1>
-            <p>Cardcluster only</p>
+            <p>Cardcluster + YGOPRODeck</p>
           </div>
         </div>
         <nav className="sidebar__nav">
@@ -341,7 +348,7 @@ function App() {
             {(busy || job?.status === 'RUNNING') && (
               <div className="busy-indicator">
                 <span className="spinner" />
-                <span>{busyMessage || 'Arbeite…'}</span>
+                <span>{busyMessage || activeJobMessage || 'Arbeite…'}</span>
               </div>
             )}
             <button className="ghost" onClick={loadCards}>Refresh</button>
@@ -407,6 +414,16 @@ function App() {
                 )}
               </div>
             </section>
+
+            {job?.status === 'RUNNING' && (
+              <div className="job-inline">
+                <span>{activeJobMessage}</span>
+                <span>
+                  {job.done || 0}/{job.total || 0}
+                </span>
+                <progress value={job.done || 0} max={job.total || 1} />
+              </div>
+            )}
 
             <main className="app__main">
               <section className="table-section">
@@ -507,7 +524,9 @@ function App() {
 
                     <div className="detail-fields">
                       <p>Status: {activeCardDetails.status}</p>
+                      <p>Source: {activeCardDetails.data_source || 'cardcluster'}</p>
                       <p>Cardcluster URL: {activeCardDetails.cardcluster_url}</p>
+                      <p>Source URL: {activeCardDetails.source_url}</p>
                       <p>Kind: {activeCardDetails.card_kind}</p>
                       <p>Subtypes: {activeCardDetails.card_subtypes}</p>
                       <p>Attribute: {activeCardDetails.attribute}</p>
