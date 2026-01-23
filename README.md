@@ -4,7 +4,7 @@ Eine lokale Desktop-App zum Verwalten von Yu-Gi-Oh Karten mit Import, Export, Du
 
 ## Voraussetzungen
 
-- Node.js 18+
+- Node.js 18 oder 20 (LTS empfohlen)
 - npm
 
 ## Installation

@@ -2,10 +2,13 @@
   "name": "ygo-card-manager",
   "version": "0.1.0",
   "description": "Yu-Gi-Oh card manager desktop app",
-  "main": "src/main/main.js",
+  "main": "src/main/bootstrap.js",
   "author": "",
   "license": "MIT",
   "private": true,
+  "engines": {
+    "node": ">=18 <22"
+  },
   "scripts": {
     "dev": "concurrently -k \"vite\" \"electron .\"",
     "build": "vite build && electron-builder",
