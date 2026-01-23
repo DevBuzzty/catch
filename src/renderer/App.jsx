@@ -121,14 +121,25 @@ function App() {
   };
 
   const handleUpsert = async (card) => {
-    await window.api.upsertCard(card);
+    const id = await window.api.upsertCard(card);
     await loadCards();
+    return id;
   };
 
   const handleDelete = async (id) => {
     await window.api.deleteCard(id);
     if (activeCard?.id === id) setActiveCard(null);
     await loadCards();
+  };
+
+  const handleSaveCard = async () => {
+    if (!activeCardDetails) return;
+    await runWithBusy('Speichere Karte…', async () => {
+      const id = await handleUpsert(activeCardDetails);
+      const payload = { ...activeCardDetails, id };
+      await window.api.updateCardDetails(payload);
+      setActiveCard(payload);
+    });
   };
 
   const handleImport = async () => {
@@ -516,7 +527,7 @@ function App() {
                     </label>
 
                     <div className="detail-actions">
-                      <button className="primary" onClick={() => handleUpsert(activeCardDetails)}>Save</button>
+                      <button className="primary" onClick={handleSaveCard}>Save</button>
                       <button className="ghost" onClick={() => handleDelete(activeCardDetails.id)}>Delete</button>
                       <button onClick={() => handleFetchSingle(activeCardDetails.id)}>Details neu laden</button>
                       <button onClick={() => handleClearDetails(activeCardDetails.id)}>Clear details</button>
@@ -524,20 +535,138 @@ function App() {
 
                     <div className="detail-fields">
                       <p>Status: {activeCardDetails.status}</p>
-                      <p>Source: {activeCardDetails.data_source || 'cardcluster'}</p>
-                      <p>Cardcluster URL: {activeCardDetails.cardcluster_url}</p>
-                      <p>Source URL: {activeCardDetails.source_url}</p>
-                      <p>Kind: {activeCardDetails.card_kind}</p>
-                      <p>Subtypes: {activeCardDetails.card_subtypes}</p>
-                      <p>Attribute: {activeCardDetails.attribute}</p>
-                      <p>Level/Rank: {activeCardDetails.level_or_rank}</p>
-                      <p>Link Rating: {activeCardDetails.link_rating}</p>
-                      <p>Race: {activeCardDetails.race}</p>
-                      <p>ATK: {activeCardDetails.atk}</p>
-                      <p>DEF: {activeCardDetails.def}</p>
-                      <p>Pendulum Scale: {activeCardDetails.pendulum_scale}</p>
-                      <p>Spell/Trap Property: {activeCardDetails.spell_trap_property}</p>
-                      <p>Effect (EN): {activeCardDetails.effect_text_en}</p>
+                      <label>
+                        Source
+                        <input
+                          value={activeCardDetails.data_source || ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, data_source: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Cardcluster URL
+                        <input
+                          value={activeCardDetails.cardcluster_url || ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, cardcluster_url: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Source URL
+                        <input
+                          value={activeCardDetails.source_url || ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, source_url: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Kind
+                        <input
+                          value={activeCardDetails.card_kind || ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, card_kind: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Subtypes
+                        <input
+                          value={activeCardDetails.card_subtypes || ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, card_subtypes: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Attribute
+                        <input
+                          value={activeCardDetails.attribute || ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, attribute: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Level/Rank
+                        <input
+                          type="number"
+                          value={activeCardDetails.level_or_rank ?? ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, level_or_rank: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Link Rating
+                        <input
+                          type="number"
+                          value={activeCardDetails.link_rating ?? ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, link_rating: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Race
+                        <input
+                          value={activeCardDetails.race || ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, race: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        ATK
+                        <input
+                          type="number"
+                          value={activeCardDetails.atk ?? ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, atk: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        DEF
+                        <input
+                          type="number"
+                          value={activeCardDetails.def ?? ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, def: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Pendulum Scale
+                        <input
+                          type="number"
+                          value={activeCardDetails.pendulum_scale ?? ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, pendulum_scale: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Spell/Trap Property
+                        <input
+                          value={activeCardDetails.spell_trap_property || ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, spell_trap_property: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Effect (EN)
+                        <textarea
+                          rows={6}
+                          value={activeCardDetails.effect_text_en || ''}
+                          onChange={(event) =>
+                            setActiveCard({ ...activeCardDetails, effect_text_en: event.target.value })
+                          }
+                        />
+                      </label>
                     </div>
                   </div>
                 ) : (

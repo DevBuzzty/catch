@@ -308,6 +308,11 @@ select {
   gap: 6px;
 }
 
+.detail-card textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
 .detail-actions {
   display: flex;
   flex-wrap: wrap;

@@ -57,6 +57,59 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
     return true;
   });
 
+  ipcMain.handle('cards:updateDetails', (_, payload) => {
+    if (!payload?.id) return false;
+    const numericFields = ['level_or_rank', 'link_rating', 'atk', 'def', 'pendulum_scale'];
+    const normalized = { ...payload };
+    numericFields.forEach((field) => {
+      const value = normalized[field];
+      if (value === '' || value === null || value === undefined) {
+        normalized[field] = null;
+      } else {
+        const parsed = Number(value);
+        normalized[field] = Number.isNaN(parsed) ? null : parsed;
+      }
+    });
+
+    db.prepare(`
+      UPDATE cards SET
+        data_source = ?,
+        cardcluster_url = ?,
+        source_url = ?,
+        card_kind = ?,
+        card_subtypes = ?,
+        attribute = ?,
+        level_or_rank = ?,
+        link_rating = ?,
+        race = ?,
+        atk = ?,
+        def = ?,
+        pendulum_scale = ?,
+        spell_trap_property = ?,
+        effect_text_en = ?,
+        updated_at = ?
+      WHERE id = ?
+    `).run(
+      normalized.data_source || null,
+      normalized.cardcluster_url || null,
+      normalized.source_url || null,
+      normalized.card_kind || null,
+      normalized.card_subtypes || null,
+      normalized.attribute || null,
+      normalized.level_or_rank,
+      normalized.link_rating,
+      normalized.race || null,
+      normalized.atk,
+      normalized.def,
+      normalized.pendulum_scale,
+      normalized.spell_trap_property || null,
+      normalized.effect_text_en || null,
+      new Date().toISOString(),
+      normalized.id
+    );
+    return true;
+  });
+
   ipcMain.handle('cards:deleteMany', (_, ids) => {
     if (!Array.isArray(ids) || ids.length === 0) return { deleted: 0 };
     const transaction = db.transaction(() => {
