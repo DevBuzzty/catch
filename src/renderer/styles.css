@@ -264,6 +264,42 @@ select {
   margin-right: 6px;
 }
 
+.algorithm {
+  display: grid;
+  gap: 12px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.algorithm ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 10px;
+}
+
+.algorithm ul {
+  margin: 6px 0 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.algorithm strong {
+  color: var(--text);
+}
+
+.algorithm__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  background: #0f1322;
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
 .checkbox {
   display: flex;
   align-items: center;

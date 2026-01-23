@@ -9,6 +9,7 @@ const emptyCard = {
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'decks', label: 'Decks' },
+  { id: 'scanner', label: 'Scanner' },
   { id: 'duplicates', label: 'Duplicates' },
   { id: 'jobs', label: 'Jobs' },
   { id: 'settings', label: 'Settings' },
@@ -810,6 +811,119 @@ function App() {
                   <p>Select a deck to view details.</p>
                 )}
               </div>
+            </div>
+          </section>
+        )}
+
+        {activeMenu === 'scanner' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Foto-Scanner</h3>
+            </div>
+            <div className="algorithm">
+              <p>
+                Ziel: Aus hochgeladenen Fotos (eine oder mehrere Karten pro Bild) Kartennamen erkennen,
+                Passcodes online auflösen, englische Namen bestimmen und alles in die Datenbank übernehmen.
+              </p>
+              <ol>
+                <li>
+                  <strong>Input & Job-Setup</strong>
+                  <ul>
+                    <li>Mehrere Bilder gleichzeitig akzeptieren (JPG/PNG/WebP, optional HEIC).</li>
+                    <li>Für jedes Bild einen Job-Eintrag erzeugen: status=PENDING, total=Anzahl Bilder.</li>
+                    <li>In Settings: ocr_language (default: deu+eng), confidence_threshold (default: 0.7).</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Vorverarbeitung (pro Bild)</strong>
+                  <ul>
+                    <li>EXIF-Orientierung korrigieren, auf max. 2000px Breite skalieren (Seitenverhältnis behalten).</li>
+                    <li>Kontrast/Schärfe leicht erhöhen, Farbraum zu RGB normalisieren.</li>
+                    <li>Optional: Hintergrund glätten (bilateral filter), um Text besser hervorzuheben.</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Kartenerkennung (mehrere Karten pro Bild)</strong>
+                  <ul>
+                    <li>Kanten finden (Canny) → Rechteck-Kandidaten via Konturen/Polygonapproximation.</li>
+                    <li>Filter auf Kartenaspekt (Yu-Gi-Oh! ~ 59x86mm; Verhältnis ca. 0.686).</li>
+                    <li>Rechtecke perspektivisch entzerren → einzelne Kartencrops erzeugen.</li>
+                    <li>Fallback: Wenn keine Rechtecke erkannt, das ganze Bild als eine Karte behandeln.</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>OCR-Regionen definieren</strong>
+                  <ul>
+                    <li>Name-Zone: oberer Kartenbalken (Top 12–18% der Kartenhöhe).</li>
+                    <li>Passcode-Zone: unterer Kartenrand rechts (Bottom 8–12%, rechte 35%).</li>
+                    <li>Optional zweite Name-Zone für alternative Layouts (z. B. Rush/Spell/Trap).</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>OCR-Ausführung</strong>
+                  <ul>
+                    <li>OCR für Name-Zone mit Sprachen deu+eng (Tesseract oder vergleichbare Engine).</li>
+                    <li>OCR für Passcode-Zone nur numerisch (Whitelist 0–9, Länge 4–12).</li>
+                    <li>Ergebnisse normalisieren: Trim, Sonderzeichen entfernen, doppelte Leerzeichen glätten.</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Kandidaten-Matching</strong>
+                  <ul>
+                    <li>Passcode hat Priorität: wenn erkannt, direkt als Query nutzen.</li>
+                    <li>Falls Passcode fehlt, Name-Kandidaten mit OCR-Confidence filtern.</li>
+                    <li>Fuzzy-Matching (Levenshtein) zwischen OCR-Name und Suchtreffern (Threshold ≥ 0.75).</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Online-Suche (sequenziell pro Datenbank)</strong>
+                  <ul>
+                    <li><em>Quelle 1: Cardcluster</em> – zuerst immer cardcluster.com durchsuchen.</li>
+                    <li>Suchreihenfolge: Passcode → EN Name → DE Name.</li>
+                    <li>Search HTML scannen, Kandidaten sammeln, bis maxCandidates geprüft.</li>
+                    <li>Detailseite laden, __NEXT_DATA__ parsen, Daten extrahieren.</li>
+                    <li>Wenn kein Treffer: Weiter zur nächsten Quelle.</li>
+                    <li><em>Quelle 2: YGOPRODeck</em> – HTML-Suche → API-Fallback.</li>
+                    <li>Website-HTML scannen, Kandidaten extrahieren, erst dann API.</li>
+                    <li>Wenn keine Quelle matcht: status=NOT_FOUND setzen.</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Validierung & Konsolidierung</strong>
+                  <ul>
+                    <li>Falls Passcode aus Quelle ≠ OCR-Passcode: WARNING_PASSCODE_MISMATCH.</li>
+                    <li>Felder vereinheitlichen: prefer passcode → en_name → de_name → details.</li>
+                    <li>Fehlende Werte aus OCR ergänzen, wenn Quelle leer ist.</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Datenbank-Insert/Update</strong>
+                  <ul>
+                    <li>Duplikate prüfen: passcode gleich oder en_name/de_name (case-insensitive).</li>
+                    <li>Bei Duplikat: Merge-Logik anwenden oder in Duplicate Center markieren.</li>
+                    <li>Bei neuem Datensatz: status=OK_DETAILS, last_fetched_at setzen.</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Job-Status & Logging</strong>
+                  <ul>
+                    <li>Pro Karte Fortschritt loggen (OCR → Suche → Detail → Insert).</li>
+                    <li>UI zeigt Fortschritt (done/total) und aktuelle Karte.</li>
+                    <li>Fehler: error_message speichern, raw_url (falls vorhanden) hinterlegen.</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Qualitätssicherung</strong>
+                  <ul>
+                    <li>Konfidenz-Score je Karte speichern (OCR + Matching).</li>
+                    <li>Unter einem Threshold: status=NEED_INPUT setzen und Review anfordern.</li>
+                  </ul>
+                </li>
+              </ol>
+              <p className="algorithm__note">
+                Hinweis: Die OCR-Engine, Bildsegmentierung und Matching-Parameter sind absichtlich getrennt,
+                damit du sie im Settings-Tab feinjustieren kannst.
+              </p>
             </div>
           </section>
         )}
