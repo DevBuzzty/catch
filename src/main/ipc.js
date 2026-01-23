@@ -58,27 +58,35 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   });
 
   ipcMain.handle('cards:importCsv', (_, payload) => {
-    const { rows } = payload;
+    const { rows, source = 'csv' } = payload;
     const now = new Date().toISOString();
-    const insert = db.prepare(`
-      INSERT INTO cards (de_name, passcode, en_name, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+    const insertBatch = db.prepare('INSERT INTO import_batches (source, created_at) VALUES (?, ?)');
+    const insertCard = db.prepare(`
+      INSERT INTO cards (de_name, passcode, en_name, status, created_at, updated_at, import_batch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
     const duplicates = [];
-    rows.forEach((row) => {
-      const deName = row.de_name || '';
-      const enName = row.en_name || '';
-      const passcode = row.passcode ? String(row.passcode) : '';
-      const duplicate = findDuplicate(db, { de_name: deName, en_name: enName, passcode });
-      if (duplicate) {
-        duplicates.push({ incoming: row, existing: duplicate });
-      } else {
-        insert.run(deName, passcode, enName, CARD_STATUSES.NEED_INPUT, now, now);
-      }
+    let batchId = null;
+
+    const transaction = db.transaction(() => {
+      const batch = insertBatch.run(source, now);
+      batchId = batch.lastInsertRowid;
+      rows.forEach((row) => {
+        const deName = row.de_name || '';
+        const enName = row.en_name || '';
+        const passcode = row.passcode ? String(row.passcode) : '';
+        const duplicate = findDuplicate(db, { de_name: deName, en_name: enName, passcode });
+        if (duplicate) {
+          duplicates.push({ incoming: row, existing: duplicate });
+        } else {
+          insertCard.run(deName, passcode, enName, CARD_STATUSES.NEED_INPUT, now, now, batchId);
+        }
+      });
     });
 
-    return { duplicates };
+    transaction();
+    return { duplicates, batchId };
   });
 
   ipcMain.handle('cards:importCsvFile', async () => {
@@ -98,25 +106,56 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   ipcMain.handle('cards:paste', (_, payload) => {
     const { lines } = payload;
     const now = new Date().toISOString();
+    const insertBatch = db.prepare('INSERT INTO import_batches (source, created_at) VALUES (?, ?)');
     const insert = db.prepare(`
-      INSERT INTO cards (de_name, passcode, en_name, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO cards (de_name, passcode, en_name, status, created_at, updated_at, import_batch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
-    lines.forEach((line) => {
-      const name = line.trim();
-      if (!name) return;
-      const duplicate = findDuplicate(db, { de_name: name, en_name: '', passcode: '' });
-      if (!duplicate) {
-        insert.run(name, '', '', CARD_STATUSES.NEED_INPUT, now, now);
-      }
+    let batchId = null;
+    const transaction = db.transaction(() => {
+      const batch = insertBatch.run('paste', now);
+      batchId = batch.lastInsertRowid;
+      lines.forEach((line) => {
+        const name = line.trim();
+        if (!name) return;
+        const duplicate = findDuplicate(db, { de_name: name, en_name: '', passcode: '' });
+        if (!duplicate) {
+          insert.run(name, '', '', CARD_STATUSES.NEED_INPUT, now, now, batchId);
+        }
+      });
     });
 
-    return true;
+    transaction();
+    return { batchId };
   });
 
   ipcMain.handle('cards:exportCsv', () => {
     return db.prepare('SELECT * FROM cards ORDER BY id ASC').all();
+  });
+
+  ipcMain.handle('cards:getLastImportBatch', () => {
+    const batch = db.prepare('SELECT * FROM import_batches ORDER BY id DESC LIMIT 1').get();
+    if (!batch) return null;
+    const count = db.prepare('SELECT COUNT(*) as count FROM cards WHERE import_batch_id = ?').get(batch.id);
+    return { ...batch, count: count?.count || 0 };
+  });
+
+  ipcMain.handle('cards:listByImportBatch', (_, batchId) => {
+    if (!batchId) return [];
+    return db.prepare('SELECT id FROM cards WHERE import_batch_id = ? ORDER BY id ASC').all(batchId);
+  });
+
+  ipcMain.handle('cards:deleteImportBatch', (_, batchId) => {
+    if (!batchId) return { deleted: 0 };
+    const transaction = db.transaction(() => {
+      const count = db.prepare('SELECT COUNT(*) as count FROM cards WHERE import_batch_id = ?').get(batchId);
+      db.prepare('DELETE FROM cards WHERE import_batch_id = ?').run(batchId);
+      db.prepare('DELETE FROM import_batches WHERE id = ?').run(batchId);
+      return count?.count || 0;
+    });
+    const deleted = transaction();
+    return { deleted };
   });
 
   ipcMain.handle('cards:clearDetails', (_, id) => {
@@ -301,6 +340,13 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
 
   ipcMain.handle('jobs:startSelected', (_, ids) => {
     const jobId = jobRunner.createJob('selected', ids, { force: true });
+    return jobId;
+  });
+
+  ipcMain.handle('jobs:startAll', () => {
+    const cards = db.prepare('SELECT * FROM cards ORDER BY id ASC').all();
+    const ids = cards.map((card) => card.id);
+    const jobId = jobRunner.createJob('all', ids, { force: true });
     return jobId;
   });
 

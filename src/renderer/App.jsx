@@ -24,12 +24,17 @@ function App() {
   const [activeCard, setActiveCard] = useState(null);
   const [logs, setLogs] = useState([]);
   const [job, setJob] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [busyMessage, setBusyMessage] = useState('');
   const [settings, setSettings] = useState({});
   const [duplicates, setDuplicates] = useState([]);
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [decks, setDecks] = useState([]);
   const [deckUrl, setDeckUrl] = useState('');
   const [activeDeck, setActiveDeck] = useState(null);
+  const [lastImport, setLastImport] = useState(null);
+  const [sortKey, setSortKey] = useState('updated_at');
+  const [sortDir, setSortDir] = useState('desc');
 
   const loadCards = async () => {
     const result = await window.api.listCards({
@@ -60,6 +65,11 @@ function App() {
     setDecks(result);
   };
 
+  const loadLastImport = async () => {
+    const result = await window.api.getLastImportBatch();
+    setLastImport(result);
+  };
+
   useEffect(() => {
     loadCards();
   }, [search, statusFilter, missingOnly]);
@@ -69,7 +79,40 @@ function App() {
     loadSettings();
     loadDuplicates();
     loadDecks();
+    loadLastImport();
   }, []);
+
+  useEffect(() => {
+    let timer;
+    if (job?.id && job?.status === 'RUNNING') {
+      timer = setInterval(() => {
+        refreshJob();
+      }, 1500);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [job?.id, job?.status]);
+
+  const runWithBusy = async (message, action) => {
+    setBusy(true);
+    setBusyMessage(message);
+    try {
+      return await action();
+    } finally {
+      setBusy(false);
+      setBusyMessage('');
+    }
+  };
+
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
 
   const handleSelect = (id) => {
     setSelectedIds((prev) =>
@@ -89,47 +132,67 @@ function App() {
   };
 
   const handleImport = async () => {
-    const fileResult = await window.api.importCsvFile();
-    if (fileResult?.canceled) return;
-    const rows = parseCsv(fileResult.content || '');
-    await window.api.importCsv({ rows });
-    await loadCards();
+    await runWithBusy('Importiere CSV…', async () => {
+      const fileResult = await window.api.importCsvFile();
+      if (fileResult?.canceled) return;
+      const rows = parseCsv(fileResult.content || '');
+      const result = await window.api.importCsv({ rows, source: 'csv' });
+      if (result?.batchId) {
+        await loadLastImport();
+      }
+      await loadCards();
+    });
   };
 
   const handleExport = async () => {
-    const data = await window.api.exportCsv();
-    const csv = toCsv(data);
-    navigator.clipboard.writeText(csv);
-    alert('CSV wurde in die Zwischenablage kopiert.');
+    await runWithBusy('Exportiere CSV…', async () => {
+      const data = await window.api.exportCsv();
+      const csv = toCsv(data);
+      await navigator.clipboard.writeText(csv);
+      alert('CSV wurde in die Zwischenablage kopiert.');
+    });
   };
 
   const handlePasteNames = async () => {
     const input = prompt('Kartennamen zeilenweise einfügen');
     if (!input) return;
     const lines = input.split('\n');
-    await window.api.pasteCards({ lines });
-    await loadCards();
+    await runWithBusy('Füge Karten ein…', async () => {
+      const result = await window.api.pasteCards({ lines });
+      if (result?.batchId) {
+        await loadLastImport();
+      }
+      await loadCards();
+    });
   };
 
   const handleFetchMissing = async () => {
-    const jobId = await window.api.startFetchMissingDetails();
-    setJob({ id: jobId });
+    await runWithBusy('Starte Fetch missing…', async () => {
+      const jobId = await window.api.startFetchMissingDetails();
+      setJob({ id: jobId, status: 'RUNNING' });
+    });
   };
 
   const handleFetchSelected = async () => {
     if (selectedIds.length === 0) return;
-    const jobId = await window.api.startFetchSelectedDetails(selectedIds);
-    setJob({ id: jobId });
+    await runWithBusy('Starte Fetch selected…', async () => {
+      const jobId = await window.api.startFetchSelectedDetails(selectedIds);
+      setJob({ id: jobId, status: 'RUNNING' });
+    });
   };
 
   const handleFetchSingle = async (id) => {
-    const jobId = await window.api.startFetchSelectedDetails([id]);
-    setJob({ id: jobId });
+    await runWithBusy('Starte Fetch…', async () => {
+      const jobId = await window.api.startFetchSelectedDetails([id]);
+      setJob({ id: jobId, status: 'RUNNING' });
+    });
   };
 
   const handleClearDetails = async (id) => {
-    await window.api.clearDetails(id);
-    await loadCards();
+    await runWithBusy('Entferne Details…', async () => {
+      await window.api.clearDetails(id);
+      await loadCards();
+    });
   };
 
   const refreshJob = async () => {
@@ -154,19 +217,23 @@ function App() {
   };
 
   const handleSaveSettings = async () => {
-    await window.api.saveSettings(settings);
-    await loadSettings();
+    await runWithBusy('Speichere Settings…', async () => {
+      await window.api.saveSettings(settings);
+      await loadSettings();
+    });
   };
 
   const handleImportDeck = async () => {
     if (!deckUrl) return;
-    const result = await window.api.importDeckFromUrl({ url: deckUrl });
-    setDeckUrl('');
-    await loadDecks();
-    if (result?.deckId) {
-      const deckDetails = await window.api.getDeck(result.deckId);
-      setActiveDeck(deckDetails);
-    }
+    await runWithBusy('Importiere Deck…', async () => {
+      const result = await window.api.importDeckFromUrl({ url: deckUrl });
+      setDeckUrl('');
+      await loadDecks();
+      if (result?.deckId) {
+        const deckDetails = await window.api.getDeck(result.deckId);
+        setActiveDeck(deckDetails);
+      }
+    });
   };
 
   const handleSelectDeck = async (deckId) => {
@@ -175,9 +242,11 @@ function App() {
   };
 
   const handleDeleteDeck = async (deckId) => {
-    await window.api.deleteDeck(deckId);
-    if (activeDeck?.deck?.id === deckId) setActiveDeck(null);
-    await loadDecks();
+    await runWithBusy('Lösche Deck…', async () => {
+      await window.api.deleteDeck(deckId);
+      if (activeDeck?.deck?.id === deckId) setActiveDeck(null);
+      await loadDecks();
+    });
   };
 
   const activeCardDetails = useMemo(() => {
@@ -185,12 +254,51 @@ function App() {
     return cards.find((card) => card.id === activeCard.id) || activeCard;
   }, [activeCard, cards]);
 
+  const sortedCards = useMemo(() => {
+    const data = [...cards];
+    const direction = sortDir === 'asc' ? 1 : -1;
+    data.sort((a, b) => {
+      const valueA = normalizeSortValue(a[sortKey]);
+      const valueB = normalizeSortValue(b[sortKey]);
+      if (valueA < valueB) return -1 * direction;
+      if (valueA > valueB) return 1 * direction;
+      return 0;
+    });
+    return data;
+  }, [cards, sortDir, sortKey]);
+
   const deckStats = useMemo(() => {
     if (!activeDeck?.entries) return null;
     const total = activeDeck.entries.reduce((sum, entry) => sum + entry.quantity, 0);
     const owned = activeDeck.entries.reduce((sum, entry) => sum + (entry.owned ? entry.quantity : 0), 0);
     return { total, owned, missing: total - owned };
   }, [activeDeck]);
+
+  const handleSelectLastImport = async () => {
+    if (!lastImport?.id) return;
+    await runWithBusy('Wähle Import aus…', async () => {
+      const rows = await window.api.listCardsByImportBatch(lastImport.id);
+      const ids = rows.map((row) => row.id);
+      setSelectedIds(ids);
+    });
+  };
+
+  const handleDeleteLastImport = async () => {
+    if (!lastImport?.id) return;
+    await runWithBusy('Lösche letzten Import…', async () => {
+      await window.api.deleteImportBatch(lastImport.id);
+      setSelectedIds([]);
+      await loadLastImport();
+      await loadCards();
+    });
+  };
+
+  const handleFetchAll = async () => {
+    await runWithBusy('Starte Fetch all…', async () => {
+      const jobId = await window.api.startFetchAllDetails();
+      setJob({ id: jobId, status: 'RUNNING' });
+    });
+  };
 
   return (
     <div className="app">
@@ -223,6 +331,12 @@ function App() {
             <p>Manage your Yu-Gi-Oh inventory locally.</p>
           </div>
           <div className="topbar__actions">
+            {(busy || job?.status === 'RUNNING') && (
+              <div className="busy-indicator">
+                <span className="spinner" />
+                <span>{busyMessage || 'Arbeite…'}</span>
+              </div>
+            )}
             <button className="ghost" onClick={loadCards}>Refresh</button>
             <button className="primary" onClick={() => handleUpsert(emptyCard)}>Add Card</button>
           </div>
@@ -236,6 +350,7 @@ function App() {
                 <button onClick={handleImport}>Import CSV</button>
                 <button onClick={handleExport}>Export CSV</button>
                 <button onClick={handlePasteNames}>Paste Names</button>
+                <button onClick={handleFetchAll}>Fetch all</button>
                 <button onClick={handleFetchMissing}>Fetch missing</button>
                 <button onClick={handleFetchSelected}>Fetch selected</button>
               </div>
@@ -264,6 +379,19 @@ function App() {
                 />
                 Missing details
               </label>
+              <div className="import-actions">
+                <button onClick={handleSelectLastImport} disabled={!lastImport?.id}>
+                  Select last import
+                </button>
+                <button onClick={handleDeleteLastImport} disabled={!lastImport?.id}>
+                  Delete last import
+                </button>
+                {lastImport?.id && (
+                  <span className="import-hint">
+                    Batch #{lastImport.id} · {lastImport.count || 0} Karten
+                  </span>
+                )}
+              </div>
             </section>
 
             <main className="app__main">
@@ -272,15 +400,35 @@ function App() {
                   <thead>
                     <tr>
                       <th></th>
-                      <th>DE</th>
-                      <th>Passcode</th>
-                      <th>EN</th>
-                      <th>Status</th>
-                      <th>Last fetched</th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('de_name')}>
+                          DE {renderSortIndicator(sortKey, sortDir, 'de_name')}
+                        </button>
+                      </th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('passcode')}>
+                          Passcode {renderSortIndicator(sortKey, sortDir, 'passcode')}
+                        </button>
+                      </th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('en_name')}>
+                          EN {renderSortIndicator(sortKey, sortDir, 'en_name')}
+                        </button>
+                      </th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('status')}>
+                          Status {renderSortIndicator(sortKey, sortDir, 'status')}
+                        </button>
+                      </th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('last_fetched_at')}>
+                          Last fetched {renderSortIndicator(sortKey, sortDir, 'last_fetched_at')}
+                        </button>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {cards.map((card) => (
+                    {sortedCards.map((card) => (
                       <tr key={card.id} onClick={() => setActiveCard(card)}>
                         <td>
                           <input
@@ -601,6 +749,18 @@ function toCsv(rows) {
     lines.push(header.map((key) => JSON.stringify(row[key] ?? '')).join(','));
   });
   return lines.join('\n');
+}
+
+function normalizeSortValue(value) {
+  if (value === null || value === undefined) return '';
+  const numeric = Number(value);
+  if (!Number.isNaN(numeric) && value !== '') return numeric;
+  return String(value).toLowerCase();
+}
+
+function renderSortIndicator(activeKey, direction, key) {
+  if (activeKey !== key) return null;
+  return direction === 'asc' ? '▲' : '▼';
 }
 
 export default App;

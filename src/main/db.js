@@ -67,6 +67,12 @@ function ensureDatabase(basePath) {
       created_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS import_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT,
+      created_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS decks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT,
@@ -87,6 +93,8 @@ function ensureDatabase(basePath) {
     CREATE INDEX IF NOT EXISTS idx_deck_cards_deck_id ON deck_cards(deck_id);
   `);
 
+  ensureColumn(db, 'cards', 'import_batch_id', 'INTEGER');
+
   const insertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
   Object.entries(DEFAULT_SETTINGS).forEach(([key, value]) => {
     const existing = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -96,6 +104,14 @@ function ensureDatabase(basePath) {
   });
 
   return db;
+}
+
+function ensureColumn(db, table, column, type) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  const exists = columns.some((col) => col.name === column);
+  if (!exists) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }
 
 module.exports = {
