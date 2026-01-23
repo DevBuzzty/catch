@@ -231,9 +231,37 @@ select {
 
 .filters {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filters__row {
+  display: flex;
   gap: 12px;
   align-items: center;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.filters__row--actions {
+  align-items: flex-start;
+}
+
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #0f1322;
+  flex-wrap: wrap;
+}
+
+.action-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 6px;
 }
 
 .checkbox {

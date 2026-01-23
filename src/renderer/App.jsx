@@ -389,63 +389,72 @@ function App() {
           <section className="panel fade-in">
             <div className="panel__header">
               <h3>Inventory</h3>
-              <div className="panel__actions">
-                <button onClick={handleImport}>Import CSV</button>
-                <button onClick={handleExport}>Export CSV</button>
-                <button onClick={handlePasteNames}>Paste Names</button>
-                <button onClick={handleFetchAll}>Fetch all</button>
-                <button onClick={handleFetchMissing}>Fetch missing</button>
-                <button onClick={handleFetchSelected}>Fetch selected</button>
-              </div>
             </div>
 
             <section className="filters">
-              <input
-                placeholder="Search name or passcode"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-                <option value="">All statuses</option>
-                <option value="OK_DETAILS">OK_DETAILS</option>
-                <option value="NOT_FOUND">NOT_FOUND</option>
-                <option value="ERROR">ERROR</option>
-                <option value="SKIP_DETAILS_PRESENT">SKIP_DETAILS_PRESENT</option>
-                <option value="NEED_INPUT">NEED_INPUT</option>
-                <option value="WARNING_PASSCODE_MISMATCH">WARNING_PASSCODE_MISMATCH</option>
-              </select>
-              <label className="checkbox">
+              <div className="filters__row">
                 <input
-                  type="checkbox"
-                  checked={missingOnly}
-                  onChange={(event) => setMissingOnly(event.target.checked)}
+                  placeholder="Search name or passcode"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
                 />
-                Missing details
-              </label>
-              <div className="import-actions">
-                <button onClick={handleSelectLastImport} disabled={!lastImport?.id}>
-                  Select last import
-                </button>
-                {selectedIds.length > 0 && (
-                  <button className="ghost" onClick={handleDeleteSelected}>
-                    Delete selected
+                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                  <option value="">All statuses</option>
+                  <option value="OK_DETAILS">OK_DETAILS</option>
+                  <option value="NOT_FOUND">NOT_FOUND</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="SKIP_DETAILS_PRESENT">SKIP_DETAILS_PRESENT</option>
+                  <option value="NEED_INPUT">NEED_INPUT</option>
+                  <option value="WARNING_PASSCODE_MISMATCH">WARNING_PASSCODE_MISMATCH</option>
+                </select>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={missingOnly}
+                    onChange={(event) => setMissingOnly(event.target.checked)}
+                  />
+                  Missing details
+                </label>
+              </div>
+              <div className="filters__row filters__row--actions">
+                <div className="action-group">
+                  <span className="action-label">Import</span>
+                  <button onClick={handleImport}>Import CSV</button>
+                  <button onClick={handleExport}>Export CSV</button>
+                  <button onClick={handlePasteNames}>Paste Names</button>
+                </div>
+                <div className="action-group">
+                  <span className="action-label">Fetch</span>
+                  <button onClick={handleFetchAll}>Fetch all</button>
+                  <button onClick={handleFetchMissing}>Fetch missing</button>
+                  <button onClick={handleFetchSelected}>Fetch selected</button>
+                </div>
+                <div className="action-group">
+                  <span className="action-label">Selection</span>
+                  <button onClick={handleSelectLastImport} disabled={!lastImport?.id}>
+                    Select last import
                   </button>
-                )}
-                {selectedIds.length > 0 && (
-                  <button className="ghost" onClick={handleSelectVisible}>
-                    Select all shown
-                  </button>
-                )}
-                {selectedIds.length > 0 && (
-                  <button className="ghost" onClick={handleDeselectAll}>
-                    Deselect all
-                  </button>
-                )}
-                {lastImport?.id && (
-                  <span className="import-hint">
-                    Batch #{lastImport.id} · {lastImport.count || 0} Karten
-                  </span>
-                )}
+                  {selectedIds.length > 0 && (
+                    <button className="ghost" onClick={handleDeleteSelected}>
+                      Delete selected
+                    </button>
+                  )}
+                  {selectedIds.length > 0 && (
+                    <button className="ghost" onClick={handleSelectVisible}>
+                      Select all shown
+                    </button>
+                  )}
+                  {selectedIds.length > 0 && (
+                    <button className="ghost" onClick={handleDeselectAll}>
+                      Deselect all
+                    </button>
+                  )}
+                  {lastImport?.id && (
+                    <span className="import-hint">
+                      Batch #{lastImport.id} · {lastImport.count || 0} Karten
+                    </span>
+                  )}
+                </div>
               </div>
             </section>
 

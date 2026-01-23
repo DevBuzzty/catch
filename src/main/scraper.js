@@ -21,9 +21,46 @@ function extractCardLinksFromSearch(html) {
   return Array.from(links);
 }
 
+function extractCardclusterCandidates(html) {
+  const $ = cheerio.load(html);
+  const candidates = [];
+  $('a[href^="/card/"]').each((_, el) => {
+    const link = $(el);
+    const href = link.attr('href');
+    if (!href) return;
+    const name = link.text().trim();
+    const rowText = link.closest('tr, li, div').text();
+    const passcode = extractPasscodeFromText(rowText);
+    candidates.push({
+      url: `https://cardcluster.com${href}`,
+      name: name || null,
+      passcode: passcode || null
+    });
+  });
+  return candidates;
+}
+
 function extractPasscodeFromText(text) {
   const match = text.match(/\b\d{4,12}\b/);
   return match ? match[0] : null;
+}
+
+function normalizeForMatch(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function scoreNameMatch(candidateName, query) {
+  const normalizedCandidate = normalizeForMatch(candidateName);
+  const normalizedQuery = normalizeForMatch(query);
+  if (!normalizedCandidate || !normalizedQuery) return 0;
+  if (normalizedCandidate === normalizedQuery) return 3;
+  if (normalizedCandidate.includes(normalizedQuery) || normalizedQuery.includes(normalizedCandidate)) return 2;
+  const queryParts = normalizedQuery.split(' ').filter(Boolean);
+  const matchCount = queryParts.filter((part) => normalizedCandidate.includes(part)).length;
+  return matchCount > 0 ? 1 : 0;
 }
 
 function findCandidateWithPasscode(html, passcode, candidates) {
@@ -39,6 +76,24 @@ function findCandidateWithPasscode(html, passcode, candidates) {
     }
   }
   return null;
+}
+
+function findBestCardclusterCandidate(candidates, query, expectedPasscode) {
+  let best = null;
+  let bestScore = 0;
+  candidates.forEach((candidate) => {
+    if (expectedPasscode && candidate.passcode === expectedPasscode) {
+      best = candidate;
+      bestScore = 99;
+      return;
+    }
+    const score = scoreNameMatch(candidate.name, query);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  });
+  return bestScore > 0 ? best : null;
 }
 
 function parseNextData(html) {
@@ -216,6 +271,13 @@ async function searchCardUrl(query, userAgent) {
   return { html, candidates };
 }
 
+async function searchCardclusterCandidates(query, userAgent) {
+  const url = `${SEARCH_BASE}${encodeURIComponent(query)}`;
+  const html = await fetchHtml(url, userAgent);
+  const candidates = extractCardclusterCandidates(html);
+  return { html, candidates };
+}
+
 async function resolveCardUrlForPasscode(passcode, userAgent, maxCandidates) {
   const { html, candidates } = await searchCardUrl(passcode, userAgent);
   if (candidates.length === 0) return null;
@@ -233,35 +295,44 @@ async function resolveCardUrlForPasscode(passcode, userAgent, maxCandidates) {
   return null;
 }
 
-async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCandidates }) {
-  const cardclusterResult = await fetchFromCardcluster({
-    passcode,
-    en_name,
-    de_name,
-    userAgent,
-    maxCandidates
-  });
-
-  if (cardclusterResult.status === 'OK_DETAILS') {
-    return cardclusterResult;
+async function resolveCardclusterUrlForName(query, userAgent, maxCandidates) {
+  const { html, candidates } = await searchCardclusterCandidates(query, userAgent);
+  if (candidates.length === 0) return null;
+  const best = findBestCardclusterCandidate(candidates, query, null);
+  if (best?.url) return best.url;
+  const limited = candidates.slice(0, maxCandidates);
+  for (const candidate of limited) {
+    const detailHtml = await fetchHtml(candidate.url, userAgent);
+    const nextData = parseNextData(detailHtml);
+    const cardObj = findCardObject(nextData);
+    const cardName = cardObj?.name || '';
+    if (scoreNameMatch(cardName, query) >= 2) {
+      return candidate.url;
+    }
   }
+  return null;
+}
 
-  const ygoproResult = await fetchFromYgoProDeck({
-    passcode,
-    en_name,
-    de_name,
-    userAgent
-  });
+async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCandidates }) {
+  const sources = [
+    () => fetchFromCardcluster({ passcode, en_name, de_name, userAgent, maxCandidates }),
+    () => fetchFromYgoProDeck({ passcode, en_name, de_name, userAgent, maxCandidates })
+  ];
 
-  if (ygoproResult.status === 'OK_DETAILS') {
-    return ygoproResult;
+  const results = [];
+  for (const fetcher of sources) {
+    const result = await fetcher();
+    results.push(result);
+    if (result.status === 'OK_DETAILS') {
+      return result;
+    }
   }
 
   return {
     status: 'NOT_FOUND',
     cardUrl: null,
     cardDetails: null,
-    searchVariant: cardclusterResult.searchVariant || ygoproResult.searchVariant || null,
+    searchVariant: results.find((result) => result.searchVariant)?.searchVariant || null,
     source: 'none'
   };
 }
@@ -281,14 +352,12 @@ async function fetchFromCardcluster({ passcode, en_name, de_name, userAgent, max
 
   if (!cardUrl && normalizedEn) {
     searchVariant = 'en_name';
-    const result = await searchCardUrl(normalizedEn, userAgent);
-    cardUrl = result.candidates[0] || null;
+    cardUrl = await resolveCardclusterUrlForName(normalizedEn, userAgent, maxCandidates);
   }
 
   if (!cardUrl && normalizedDe) {
     searchVariant = 'de_name';
-    const result = await searchCardUrl(normalizedDe, userAgent);
-    cardUrl = result.candidates[0] || null;
+    cardUrl = await resolveCardclusterUrlForName(normalizedDe, userAgent, maxCandidates);
   }
 
   if (!cardUrl) {
@@ -305,18 +374,23 @@ async function fetchFromCardcluster({ passcode, en_name, de_name, userAgent, max
   return { status: 'OK_DETAILS', cardUrl, cardDetails: mapped, searchVariant, source: 'cardcluster' };
 }
 
-async function fetchFromYgoProDeck({ passcode, en_name, de_name, userAgent }) {
+async function fetchFromYgoProDeck({ passcode, en_name, de_name, userAgent, maxCandidates }) {
   const normalizedPasscode = normalizeString(passcode);
   const normalizedEn = normalizeString(en_name);
   const normalizedDe = normalizeString(de_name);
 
   let url = null;
   let searchVariant = null;
+  const expectedPasscode = normalizedPasscode || null;
 
   const searchQuery = normalizedPasscode || normalizedEn || normalizedDe;
   if (searchQuery) {
     const candidates = await searchYgoProDeckHtml(searchQuery, userAgent);
-    const bestCandidate = candidates.find((candidate) => candidate.id) || candidates[0];
+    const limited = candidates.slice(0, maxCandidates || 5);
+    const bestCandidate = limited.find((candidate) => candidate.id === expectedPasscode)
+      || limited.find((candidate) => candidate.id)
+      || limited.find((candidate) => scoreNameMatch(candidate.name, searchQuery) >= 2)
+      || limited[0];
     if (bestCandidate?.id) {
       searchVariant = 'passcode';
       url = `${YGOPRO_BASE}?id=${encodeURIComponent(bestCandidate.id)}`;
@@ -402,6 +476,7 @@ async function fetchDeckFromUrl(url, userAgent) {
 
 module.exports = {
   extractCardLinksFromSearch,
+  extractCardclusterCandidates,
   parseNextData,
   findCardObject,
   findDeckObject,
@@ -410,9 +485,11 @@ module.exports = {
   fetchCardDetails,
   fetchDeckFromUrl,
   resolveCardUrlForPasscode,
+  resolveCardclusterUrlForName,
   fetchFromCardcluster,
   fetchFromYgoProDeck,
   mapYgoProCard,
   searchYgoProDeckHtml,
-  extractYgoProDeckCandidates
+  extractYgoProDeckCandidates,
+  scoreNameMatch
 };
