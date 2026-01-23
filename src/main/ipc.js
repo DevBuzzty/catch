@@ -1,7 +1,8 @@
 const { dialog } = require('electron');
 const fs = require('fs');
 const { CARD_STATUSES } = require('../shared/constants');
-const { fetchDeckFromUrl } = require('./scraper');
+const { fetchDeckFromUrl, fetchCardDetails } = require('./scraper');
+const { createWorker } = require('tesseract.js');
 
 function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   ipcMain.handle('cards:list', (_, params = {}) => {
@@ -108,6 +109,22 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
       normalized.id
     );
     return true;
+  });
+
+  ipcMain.handle('scanner:scanImages', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Scan card images',
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'heic'] }],
+      properties: ['openFile', 'multiSelections']
+    });
+    if (result.canceled || !result.filePaths?.length) {
+      return { canceled: true };
+    }
+    const settings = db.prepare('SELECT key, value FROM settings').all();
+    const userAgent = settings.find((row) => row.key === 'user_agent')?.value || 'YGO-Card-Manager/0.1';
+    const maxCandidates = Number(settings.find((row) => row.key === 'max_candidates_passcode_match')?.value || 5);
+    const scanResult = await scanImages(result.filePaths, { userAgent, maxCandidates }, db, logger);
+    return { canceled: false, ...scanResult };
   });
 
   ipcMain.handle('cards:deleteMany', (_, ids) => {
@@ -351,7 +368,9 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
         status = ?,
         updated_at = ?,
         last_fetched_at = ?,
+        data_source = ?,
         cardcluster_url = ?,
+        source_url = ?,
         card_kind = ?,
         card_subtypes = ?,
         attribute = ?,
@@ -373,7 +392,9 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
       merged.status,
       merged.updated_at,
       merged.last_fetched_at,
+      merged.data_source,
       merged.cardcluster_url,
+      merged.source_url,
       merged.card_kind,
       merged.card_subtypes,
       merged.attribute,
@@ -459,6 +480,253 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   });
 }
 
+function extractPasscodesFromText(text) {
+  const matches = text.match(/\b\d{4,12}\b/g) || [];
+  return Array.from(new Set(matches));
+}
+
+function extractNameCandidate(text) {
+  const lines = String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const nameLine = lines.find((line) => /[a-zA-Z]/.test(line) && line.length >= 3) || '';
+  return nameLine.replace(/[^a-zA-Z0-9'’\-\s]/g, '').trim();
+}
+
+async function scanImages(filePaths, { userAgent, maxCandidates }, db, logger) {
+  const worker = await createWorker();
+  await worker.loadLanguage('eng+deu');
+  await worker.initialize('eng+deu');
+
+  const now = new Date().toISOString();
+  const insert = db.prepare(`
+    INSERT INTO cards (
+      de_name,
+      passcode,
+      en_name,
+      status,
+      created_at,
+      updated_at,
+      last_fetched_at,
+      data_source,
+      cardcluster_url,
+      source_url,
+      card_kind,
+      card_subtypes,
+      attribute,
+      level_or_rank,
+      link_rating,
+      race,
+      atk,
+      def,
+      pendulum_scale,
+      spell_trap_property,
+      effect_text_en
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const results = [];
+  for (const filePath of filePaths) {
+    const { data } = await worker.recognize(filePath);
+    const passcodes = extractPasscodesFromText(data.text);
+    const nameCandidate = extractNameCandidate(data.text);
+    const candidates = passcodes.length > 0 ? passcodes : [null];
+
+    for (const passcode of candidates) {
+      const fetchResult = await fetchCardDetails({
+        passcode: passcode || '',
+        en_name: nameCandidate || '',
+        de_name: '',
+        userAgent,
+        maxCandidates
+      }).catch((error) => ({ status: CARD_STATUSES.ERROR, error }));
+
+      if (fetchResult.status === CARD_STATUSES.OK_DETAILS) {
+        const detail = fetchResult.cardDetails;
+        const enName = detail.name || nameCandidate || '';
+        const incoming = {
+          de_name: '',
+          passcode: detail.passcode || passcode || '',
+          en_name: enName,
+          status: CARD_STATUSES.OK_DETAILS,
+          updated_at: now,
+          last_fetched_at: now,
+          data_source: detail.data_source || null,
+          cardcluster_url: detail.cardcluster_url || null,
+          source_url: detail.source_url || null,
+          card_kind: detail.card_kind || null,
+          card_subtypes: detail.card_subtypes || null,
+          attribute: detail.attribute || null,
+          level_or_rank: detail.level_or_rank ?? null,
+          link_rating: detail.link_rating ?? null,
+          race: detail.race || null,
+          atk: detail.atk ?? null,
+          def: detail.def ?? null,
+          pendulum_scale: detail.pendulum_scale ?? null,
+          spell_trap_property: detail.spell_trap_property || null,
+          effect_text_en: detail.effect_text_en || null,
+          error_message: null,
+          raw_url: null
+        };
+        const duplicate = findDuplicate(db, {
+          de_name: incoming.de_name,
+          en_name: incoming.en_name,
+          passcode: incoming.passcode
+        });
+        if (duplicate) {
+          const merged = mergeCards(duplicate, incoming);
+          updateMergedCard(db, merged, duplicate.id);
+        } else {
+          insert.run(
+            incoming.de_name,
+            incoming.passcode,
+            incoming.en_name,
+            incoming.status,
+            now,
+            now,
+            now,
+            incoming.data_source,
+            incoming.cardcluster_url,
+            incoming.source_url,
+            incoming.card_kind,
+            incoming.card_subtypes,
+            incoming.attribute,
+            incoming.level_or_rank,
+            incoming.link_rating,
+            incoming.race,
+            incoming.atk,
+            incoming.def,
+            incoming.pendulum_scale,
+            incoming.spell_trap_property,
+            incoming.effect_text_en
+          );
+        }
+        results.push({ filePath, passcode: detail.passcode || passcode, en_name: enName, status: CARD_STATUSES.OK_DETAILS });
+      } else {
+        const status = fetchResult.status || CARD_STATUSES.NOT_FOUND;
+        const incoming = {
+          de_name: '',
+          passcode: passcode || '',
+          en_name: nameCandidate || '',
+          status,
+          updated_at: now,
+          last_fetched_at: null,
+          data_source: null,
+          cardcluster_url: null,
+          source_url: null,
+          card_kind: null,
+          card_subtypes: null,
+          attribute: null,
+          level_or_rank: null,
+          link_rating: null,
+          race: null,
+          atk: null,
+          def: null,
+          pendulum_scale: null,
+          spell_trap_property: null,
+          effect_text_en: null,
+          error_message: null,
+          raw_url: null
+        };
+        const duplicate = findDuplicate(db, {
+          de_name: incoming.de_name,
+          en_name: incoming.en_name,
+          passcode: incoming.passcode
+        });
+        if (duplicate) {
+          const merged = mergeCards(duplicate, incoming);
+          updateMergedCard(db, merged, duplicate.id);
+        } else {
+          insert.run(
+            incoming.de_name,
+            incoming.passcode,
+            incoming.en_name,
+            incoming.status,
+            now,
+            now,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          );
+        }
+        if (fetchResult.error) {
+          logger.log(db, 'error', `Scan fetch error for ${filePath}: ${fetchResult.error.message}`);
+        }
+        results.push({ filePath, passcode: passcode || null, en_name: nameCandidate || null, status });
+      }
+    }
+  }
+
+  await worker.terminate();
+  return { totalImages: filePaths.length, results };
+}
+
+function updateMergedCard(db, merged, keepId) {
+  db.prepare(`
+    UPDATE cards SET
+      de_name = ?,
+      passcode = ?,
+      en_name = ?,
+      status = ?,
+      updated_at = ?,
+      last_fetched_at = ?,
+      data_source = ?,
+      cardcluster_url = ?,
+      source_url = ?,
+      card_kind = ?,
+      card_subtypes = ?,
+      attribute = ?,
+      level_or_rank = ?,
+      link_rating = ?,
+      race = ?,
+      atk = ?,
+      def = ?,
+      pendulum_scale = ?,
+      spell_trap_property = ?,
+      effect_text_en = ?,
+      error_message = ?,
+      raw_url = ?
+    WHERE id = ?
+  `).run(
+    merged.de_name,
+    merged.passcode,
+    merged.en_name,
+    merged.status,
+    merged.updated_at,
+    merged.last_fetched_at,
+      merged.data_source,
+      merged.cardcluster_url,
+      merged.source_url,
+      merged.card_kind,
+    merged.card_subtypes,
+    merged.attribute,
+    merged.level_or_rank,
+    merged.link_rating,
+    merged.race,
+    merged.atk,
+    merged.def,
+    merged.pendulum_scale,
+    merged.spell_trap_property,
+    merged.effect_text_en,
+    merged.error_message,
+    merged.raw_url,
+    keepId
+  );
+}
+
 function findDuplicate(db, card) {
   const match = db.prepare(`
     SELECT * FROM cards WHERE
@@ -495,7 +763,9 @@ function mergeCards(primary, secondary) {
     status: preferred.status || fallback.status,
     updated_at: now,
     last_fetched_at: preferred.last_fetched_at || fallback.last_fetched_at,
+    data_source: preferred.data_source || fallback.data_source,
     cardcluster_url: preferred.cardcluster_url || fallback.cardcluster_url,
+    source_url: preferred.source_url || fallback.source_url,
     card_kind: preferred.card_kind || fallback.card_kind,
     card_subtypes: preferred.card_subtypes || fallback.card_subtypes,
     attribute: preferred.attribute || fallback.attribute,

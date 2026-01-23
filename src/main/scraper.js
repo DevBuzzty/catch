@@ -167,6 +167,7 @@ function mapCardDetails(cardObj) {
   return {
     data_source: cardObj.data_source || null,
     source_url: cardObj.source_url || null,
+    name: cardObj.name || null,
     cardcluster_url: cardObj.url || null,
     card_kind: kind || null,
     card_subtypes: subtypes || null,
@@ -443,6 +444,7 @@ function mapYgoProCard(cardObj) {
   return {
     data_source: 'ygoprodeck',
     source_url: cardObj.card_images?.[0]?.image_url || null,
+    name: cardObj.name || null,
     cardcluster_url: null,
     card_kind: kind || null,
     card_subtypes: subtypes || null,

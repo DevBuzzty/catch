@@ -31,5 +31,6 @@ contextBridge.exposeInMainWorld('api', {
   listJobs: () => ipcRenderer.invoke('jobs:list'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
-  listLogs: () => ipcRenderer.invoke('logs:list')
+  listLogs: () => ipcRenderer.invoke('logs:list'),
+  scanImages: () => ipcRenderer.invoke('scanner:scanImages')
 });

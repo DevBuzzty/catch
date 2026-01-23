@@ -37,6 +37,9 @@ function App() {
   const [lastImport, setLastImport] = useState(null);
   const [sortKey, setSortKey] = useState('updated_at');
   const [sortDir, setSortDir] = useState('desc');
+  const [scanResults, setScanResults] = useState([]);
+  const [scanSummary, setScanSummary] = useState(null);
+  const [scanBusy, setScanBusy] = useState(false);
 
   const loadCards = async () => {
     const result = await window.api.listCards({
@@ -335,6 +338,19 @@ function App() {
 
   const handleDeselectAll = () => {
     setSelectedIds([]);
+  };
+
+  const handleScanImages = async () => {
+    setScanBusy(true);
+    try {
+      const result = await window.api.scanImages();
+      if (result?.canceled) return;
+      setScanSummary({ totalImages: result.totalImages, totalResults: result.results?.length || 0 });
+      setScanResults(result.results || []);
+      await loadCards();
+    } finally {
+      setScanBusy(false);
+    }
   };
 
   const activeJobMessage = useMemo(() => {
@@ -819,7 +835,32 @@ function App() {
           <section className="panel fade-in">
             <div className="panel__header">
               <h3>Foto-Scanner</h3>
+              <div className="panel__actions">
+                <button className="primary" onClick={handleScanImages} disabled={scanBusy}>
+                  {scanBusy ? 'Scanning…' : 'Upload & Scan Images'}
+                </button>
+              </div>
             </div>
+            {scanSummary && (
+              <div className="scan-summary">
+                <span>Images: {scanSummary.totalImages}</span>
+                <span>Cards added: {scanSummary.totalResults}</span>
+              </div>
+            )}
+            {scanResults.length > 0 && (
+              <div className="scan-results">
+                <h4>Scan Results</h4>
+                <ul>
+                  {scanResults.map((result, index) => (
+                    <li key={`${result.filePath}-${index}`}>
+                      <strong>{result.en_name || 'Unknown'}</strong>
+                      <span>Passcode: {result.passcode || 'n/a'}</span>
+                      <span>Status: {result.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="algorithm">
               <p>
                 Ziel: Aus hochgeladenen Fotos (eine oder mehrere Karten pro Bild) Kartennamen erkennen,
