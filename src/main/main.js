@@ -5,7 +5,7 @@ const { registerIpcHandlers } = require('./ipc');
 const { initLogger } = require('./logger');
 const { JobRunner } = require('./jobRunner');
 
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = !app.isPackaged;
 
 let mainWindow;
 let jobRunner;
@@ -21,8 +21,10 @@ function createWindow() {
     }
   });
 
+  const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
+
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../../dist/renderer/index.html'));
