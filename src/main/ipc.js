@@ -57,6 +57,16 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
     return true;
   });
 
+  ipcMain.handle('cards:deleteMany', (_, ids) => {
+    if (!Array.isArray(ids) || ids.length === 0) return { deleted: 0 };
+    const transaction = db.transaction(() => {
+      const deleteStmt = db.prepare('DELETE FROM cards WHERE id = ?');
+      ids.forEach((id) => deleteStmt.run(id));
+      return ids.length;
+    });
+    return { deleted: transaction() };
+  });
+
   ipcMain.handle('cards:importCsv', (_, payload) => {
     const { rows, source = 'csv' } = payload;
     const now = new Date().toISOString();

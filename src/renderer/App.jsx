@@ -283,12 +283,14 @@ function App() {
     });
   };
 
-  const handleDeleteLastImport = async () => {
-    if (!lastImport?.id) return;
-    await runWithBusy('Lösche letzten Import…', async () => {
-      await window.api.deleteImportBatch(lastImport.id);
+  const handleDeleteSelected = async () => {
+    if (selectedIds.length === 0) return;
+    await runWithBusy('Lösche Auswahl…', async () => {
+      await window.api.deleteCards(selectedIds);
+      if (activeCard && selectedIds.includes(activeCard.id)) {
+        setActiveCard(null);
+      }
       setSelectedIds([]);
-      await loadLastImport();
       await loadCards();
     });
   };
@@ -388,9 +390,11 @@ function App() {
                 <button onClick={handleSelectLastImport} disabled={!lastImport?.id}>
                   Select last import
                 </button>
-                <button onClick={handleDeleteLastImport} disabled={!lastImport?.id}>
-                  Delete last import
-                </button>
+                {selectedIds.length > 0 && (
+                  <button className="ghost" onClick={handleDeleteSelected}>
+                    Delete selected
+                  </button>
+                )}
                 {selectedIds.length > 0 && (
                   <button className="ghost" onClick={handleSelectVisible}>
                     Select all shown
