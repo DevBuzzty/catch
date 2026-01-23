@@ -22,6 +22,7 @@ function App() {
   const [statusFilter, setStatusFilter] = useState('');
   const [missingOnly, setMissingOnly] = useState(false);
   const [activeCard, setActiveCard] = useState(null);
+  const [activeCardDirty, setActiveCardDirty] = useState(false);
   const [logs, setLogs] = useState([]);
   const [job, setJob] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -73,6 +74,14 @@ function App() {
   useEffect(() => {
     loadCards();
   }, [search, statusFilter, missingOnly]);
+
+  useEffect(() => {
+    if (!activeCard || activeCardDirty) return;
+    const updated = cards.find((card) => card.id === activeCard.id);
+    if (updated) {
+      setActiveCard(updated);
+    }
+  }, [cards, activeCard, activeCardDirty]);
 
   useEffect(() => {
     loadLogs();
@@ -128,7 +137,10 @@ function App() {
 
   const handleDelete = async (id) => {
     await window.api.deleteCard(id);
-    if (activeCard?.id === id) setActiveCard(null);
+    if (activeCard?.id === id) {
+      setActiveCard(null);
+      setActiveCardDirty(false);
+    }
     await loadCards();
   };
 
@@ -139,6 +151,7 @@ function App() {
       const payload = { ...activeCardDetails, id };
       await window.api.updateCardDetails(payload);
       setActiveCard(payload);
+      setActiveCardDirty(false);
     });
   };
 
@@ -262,8 +275,9 @@ function App() {
 
   const activeCardDetails = useMemo(() => {
     if (!activeCard) return null;
+    if (activeCardDirty) return activeCard;
     return cards.find((card) => card.id === activeCard.id) || activeCard;
-  }, [activeCard, cards]);
+  }, [activeCard, activeCardDirty, cards]);
 
   const sortedCards = useMemo(() => {
     const data = [...cards];
@@ -471,7 +485,13 @@ function App() {
                   </thead>
                   <tbody>
                     {sortedCards.map((card) => (
-                      <tr key={card.id} onClick={() => setActiveCard(card)}>
+                      <tr
+                        key={card.id}
+                        onClick={() => {
+                          setActiveCard(card);
+                          setActiveCardDirty(false);
+                        }}
+                      >
                         <td>
                           <input
                             type="checkbox"
@@ -502,27 +522,30 @@ function App() {
                       DE Name
                       <input
                         value={activeCardDetails.de_name || ''}
-                        onChange={(event) =>
-                          setActiveCard({ ...activeCardDetails, de_name: event.target.value })
-                        }
+                        onChange={(event) => {
+                          setActiveCard({ ...activeCardDetails, de_name: event.target.value });
+                          setActiveCardDirty(true);
+                        }}
                       />
                     </label>
                     <label>
                       Passcode
                       <input
                         value={activeCardDetails.passcode || ''}
-                        onChange={(event) =>
-                          setActiveCard({ ...activeCardDetails, passcode: event.target.value })
-                        }
+                        onChange={(event) => {
+                          setActiveCard({ ...activeCardDetails, passcode: event.target.value });
+                          setActiveCardDirty(true);
+                        }}
                       />
                     </label>
                     <label>
                       EN Name
                       <input
                         value={activeCardDetails.en_name || ''}
-                        onChange={(event) =>
-                          setActiveCard({ ...activeCardDetails, en_name: event.target.value })
-                        }
+                        onChange={(event) => {
+                          setActiveCard({ ...activeCardDetails, en_name: event.target.value });
+                          setActiveCardDirty(true);
+                        }}
                       />
                     </label>
 
@@ -539,54 +562,60 @@ function App() {
                         Source
                         <input
                           value={activeCardDetails.data_source || ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, data_source: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, data_source: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
                         Cardcluster URL
                         <input
                           value={activeCardDetails.cardcluster_url || ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, cardcluster_url: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, cardcluster_url: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
                         Source URL
                         <input
                           value={activeCardDetails.source_url || ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, source_url: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, source_url: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
                         Kind
                         <input
                           value={activeCardDetails.card_kind || ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, card_kind: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, card_kind: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
                         Subtypes
                         <input
                           value={activeCardDetails.card_subtypes || ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, card_subtypes: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, card_subtypes: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
                         Attribute
                         <input
                           value={activeCardDetails.attribute || ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, attribute: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, attribute: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
@@ -594,9 +623,10 @@ function App() {
                         <input
                           type="number"
                           value={activeCardDetails.level_or_rank ?? ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, level_or_rank: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, level_or_rank: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
@@ -604,18 +634,20 @@ function App() {
                         <input
                           type="number"
                           value={activeCardDetails.link_rating ?? ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, link_rating: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, link_rating: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
                         Race
                         <input
                           value={activeCardDetails.race || ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, race: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, race: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
@@ -623,9 +655,10 @@ function App() {
                         <input
                           type="number"
                           value={activeCardDetails.atk ?? ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, atk: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, atk: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
@@ -633,9 +666,10 @@ function App() {
                         <input
                           type="number"
                           value={activeCardDetails.def ?? ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, def: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, def: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
@@ -643,18 +677,20 @@ function App() {
                         <input
                           type="number"
                           value={activeCardDetails.pendulum_scale ?? ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, pendulum_scale: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, pendulum_scale: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
                         Spell/Trap Property
                         <input
                           value={activeCardDetails.spell_trap_property || ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, spell_trap_property: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, spell_trap_property: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                       <label>
@@ -662,9 +698,10 @@ function App() {
                         <textarea
                           rows={6}
                           value={activeCardDetails.effect_text_en || ''}
-                          onChange={(event) =>
-                            setActiveCard({ ...activeCardDetails, effect_text_en: event.target.value })
-                          }
+                          onChange={(event) => {
+                            setActiveCard({ ...activeCardDetails, effect_text_en: event.target.value });
+                            setActiveCardDirty(true);
+                          }}
                         />
                       </label>
                     </div>
