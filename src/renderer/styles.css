@@ -204,6 +204,10 @@ select {
   flex-wrap: wrap;
 }
 
+.import-actions .ghost {
+  padding-inline: 14px;
+}
+
 .import-hint {
   color: var(--muted);
   font-size: 12px;

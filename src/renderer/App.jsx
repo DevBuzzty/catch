@@ -300,6 +300,11 @@ function App() {
     });
   };
 
+  const handleSelectVisible = () => {
+    const ids = sortedCards.map((card) => card.id);
+    setSelectedIds(ids);
+  };
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -386,6 +391,11 @@ function App() {
                 <button onClick={handleDeleteLastImport} disabled={!lastImport?.id}>
                   Delete last import
                 </button>
+                {selectedIds.length > 0 && (
+                  <button className="ghost" onClick={handleSelectVisible}>
+                    Select all shown
+                  </button>
+                )}
                 {lastImport?.id && (
                   <span className="import-hint">
                     Batch #{lastImport.id} · {lastImport.count || 0} Karten
