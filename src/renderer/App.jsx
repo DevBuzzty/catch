@@ -89,9 +89,9 @@ function App() {
   };
 
   const handleImport = async () => {
-    const input = prompt('CSV Inhalt einfügen (Header: de_name, passcode, en_name)');
-    if (!input) return;
-    const rows = parseCsv(input);
+    const fileResult = await window.api.importCsvFile();
+    if (fileResult?.canceled) return;
+    const rows = parseCsv(fileResult.content || '');
     await window.api.importCsv({ rows });
     await loadCards();
   };

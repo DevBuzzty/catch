@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   deleteCard: (id) => ipcRenderer.invoke('cards:delete', id),
   clearDetails: (id) => ipcRenderer.invoke('cards:clearDetails', id),
   importCsv: (payload) => ipcRenderer.invoke('cards:importCsv', payload),
+  importCsvFile: () => ipcRenderer.invoke('cards:importCsvFile'),
   exportCsv: () => ipcRenderer.invoke('cards:exportCsv'),
   pasteCards: (payload) => ipcRenderer.invoke('cards:paste', payload),
   listDuplicates: () => ipcRenderer.invoke('duplicates:list'),

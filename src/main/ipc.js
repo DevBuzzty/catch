@@ -1,3 +1,5 @@
+const { dialog } = require('electron');
+const fs = require('fs');
 const { CARD_STATUSES } = require('../shared/constants');
 const { fetchDeckFromUrl } = require('./scraper');
 
@@ -77,6 +79,20 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
     });
 
     return { duplicates };
+  });
+
+  ipcMain.handle('cards:importCsvFile', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Import CSV',
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+      properties: ['openFile']
+    });
+    if (result.canceled || !result.filePaths?.length) {
+      return { canceled: true };
+    }
+    const filePath = result.filePaths[0];
+    const content = fs.readFileSync(filePath, 'utf8');
+    return { canceled: false, content };
   });
 
   ipcMain.handle('cards:paste', (_, payload) => {
