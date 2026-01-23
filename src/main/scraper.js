@@ -2,6 +2,7 @@ const cheerio = require('cheerio');
 
 const SEARCH_BASE = 'https://cardcluster.com/cards?q=';
 const YGOPRO_BASE = 'https://db.ygoprodeck.com/api/v7/cardinfo.php';
+const YGOPRO_SEARCH_BASE = 'https://ygoprodeck.com/card-database/';
 
 function normalizeString(value) {
   if (!value) return '';
@@ -178,6 +179,36 @@ async function fetchJson(url, userAgent) {
   return response.json();
 }
 
+function extractYgoProDeckCandidates(html) {
+  const $ = cheerio.load(html);
+  const candidates = [];
+  $('[data-id], [data-card-id], [data-passcode]').each((_, el) => {
+    const node = $(el);
+    const id = node.attr('data-id') || node.attr('data-card-id') || node.attr('data-passcode');
+    const name = node.attr('data-name') || node.find('.card-name, .name, h3, h4').first().text().trim();
+    if (id || name) {
+      candidates.push({ id: id ? String(id) : null, name: name || null });
+    }
+  });
+
+  $('a[href*="/card/"]').each((_, el) => {
+    const link = $(el);
+    const name = link.text().trim();
+    const idMatch = link.attr('href')?.match(/\/card\/(\d+)\//);
+    if (idMatch || name) {
+      candidates.push({ id: idMatch ? idMatch[1] : null, name: name || null });
+    }
+  });
+
+  return candidates.filter((candidate) => candidate.id || candidate.name);
+}
+
+async function searchYgoProDeckHtml(query, userAgent) {
+  const url = `${YGOPRO_SEARCH_BASE}?&fname=${encodeURIComponent(query)}`;
+  const html = await fetchHtml(url, userAgent);
+  return extractYgoProDeckCandidates(html);
+}
+
 async function searchCardUrl(query, userAgent) {
   const url = `${SEARCH_BASE}${encodeURIComponent(query)}`;
   const html = await fetchHtml(url, userAgent);
@@ -282,15 +313,30 @@ async function fetchFromYgoProDeck({ passcode, en_name, de_name, userAgent }) {
   let url = null;
   let searchVariant = null;
 
-  if (normalizedPasscode) {
-    searchVariant = 'passcode';
-    url = `${YGOPRO_BASE}?id=${encodeURIComponent(normalizedPasscode)}`;
-  } else if (normalizedEn) {
-    searchVariant = 'en_name';
-    url = `${YGOPRO_BASE}?name=${encodeURIComponent(normalizedEn)}`;
-  } else if (normalizedDe) {
-    searchVariant = 'de_name';
-    url = `${YGOPRO_BASE}?name=${encodeURIComponent(normalizedDe)}`;
+  const searchQuery = normalizedPasscode || normalizedEn || normalizedDe;
+  if (searchQuery) {
+    const candidates = await searchYgoProDeckHtml(searchQuery, userAgent);
+    const bestCandidate = candidates.find((candidate) => candidate.id) || candidates[0];
+    if (bestCandidate?.id) {
+      searchVariant = 'passcode';
+      url = `${YGOPRO_BASE}?id=${encodeURIComponent(bestCandidate.id)}`;
+    } else if (bestCandidate?.name) {
+      searchVariant = normalizedEn ? 'en_name' : 'de_name';
+      url = `${YGOPRO_BASE}?name=${encodeURIComponent(bestCandidate.name)}`;
+    }
+  }
+
+  if (!url) {
+    if (normalizedPasscode) {
+      searchVariant = 'passcode';
+      url = `${YGOPRO_BASE}?id=${encodeURIComponent(normalizedPasscode)}`;
+    } else if (normalizedEn) {
+      searchVariant = 'en_name';
+      url = `${YGOPRO_BASE}?name=${encodeURIComponent(normalizedEn)}`;
+    } else if (normalizedDe) {
+      searchVariant = 'de_name';
+      url = `${YGOPRO_BASE}?name=${encodeURIComponent(normalizedDe)}`;
+    }
   }
 
   if (!url) {
@@ -366,5 +412,7 @@ module.exports = {
   resolveCardUrlForPasscode,
   fetchFromCardcluster,
   fetchFromYgoProDeck,
-  mapYgoProCard
+  mapYgoProCard,
+  searchYgoProDeckHtml,
+  extractYgoProDeckCandidates
 };

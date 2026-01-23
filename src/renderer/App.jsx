@@ -332,6 +332,10 @@ function App() {
     setSelectedIds(ids);
   };
 
+  const handleDeselectAll = () => {
+    setSelectedIds([]);
+  };
+
   const activeJobMessage = useMemo(() => {
     if (job?.status !== 'RUNNING') return '';
     if (job?.current_action) return job.current_action;
@@ -430,6 +434,11 @@ function App() {
                 {selectedIds.length > 0 && (
                   <button className="ghost" onClick={handleSelectVisible}>
                     Select all shown
+                  </button>
+                )}
+                {selectedIds.length > 0 && (
+                  <button className="ghost" onClick={handleDeselectAll}>
+                    Deselect all
                   </button>
                 )}
                 {lastImport?.id && (
