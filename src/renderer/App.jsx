@@ -41,6 +41,7 @@ function App() {
   const [scanSummary, setScanSummary] = useState(null);
   const [speechTranscript, setSpeechTranscript] = useState('');
   const [speechBusy, setSpeechBusy] = useState(false);
+  const [speechStatus, setSpeechStatus] = useState('');
 
   const loadCards = async () => {
     const result = await window.api.listCards({
@@ -344,13 +345,20 @@ function App() {
 
   const handleTranscribeAudio = async () => {
     setSpeechBusy(true);
+    setSpeechStatus('Transcribing audio…');
     try {
       const result = await window.api.transcribeAudio();
-      if (result?.canceled) return;
+      if (result?.canceled) {
+        setSpeechStatus('');
+        return;
+      }
       setSpeechTranscript(result.transcript || '');
       setScanResults(result.results || []);
       setScanSummary({ totalImages: 0, totalResults: result.results?.length || 0 });
+      setSpeechStatus('Transcription complete.');
       await loadCards();
+    } catch (error) {
+      setSpeechStatus(`Transcription failed: ${error.message}`);
     } finally {
       setSpeechBusy(false);
     }
@@ -847,6 +855,11 @@ function App() {
             {scanSummary && (
               <div className="scan-summary">
                 <span>Cards added: {scanSummary.totalResults}</span>
+              </div>
+            )}
+            {speechStatus && (
+              <div className="scan-summary">
+                <span>{speechStatus}</span>
               </div>
             )}
             {speechTranscript && (
