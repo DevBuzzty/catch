@@ -42,6 +42,8 @@ function App() {
   const [speechTranscript, setSpeechTranscript] = useState('');
   const [speechBusy, setSpeechBusy] = useState(false);
   const [speechStatus, setSpeechStatus] = useState('');
+  const [speechReview, setSpeechReview] = useState(null);
+  const [speechSelections, setSpeechSelections] = useState({});
   const [duplicateNotice, setDuplicateNotice] = useState(null);
 
   const loadCards = async () => {
@@ -354,23 +356,72 @@ function App() {
   const handleTranscribeAudio = async () => {
     setSpeechBusy(true);
     setSpeechStatus('Transcribing audio…');
+    setSpeechReview(null);
+    setSpeechSelections({});
     try {
       const result = await window.api.transcribeAudio();
       if (result?.canceled) {
         setSpeechStatus('');
         return;
       }
+      if (result?.error) {
+        setSpeechStatus(`Transcription failed: ${result.error}`);
+        return;
+      }
+      const candidates = result?.candidates || [];
       setSpeechTranscript(result.transcript || '');
-      setScanResults(result.results || []);
-      setScanSummary({ totalImages: 0, totalResults: result.results?.length || 0 });
-      showDuplicateNotice('Sprach-Import', result?.duplicates || []);
-      setSpeechStatus('Transcription complete.');
-      await loadCards();
+      setScanResults(candidates);
+      setScanSummary({ totalImages: 0, totalResults: candidates.length });
+      setSpeechReview({ candidates, duplicates: result?.duplicates || [] });
+      const initialSelections = {};
+      candidates.forEach((_, index) => {
+        initialSelections[index] = true;
+      });
+      setSpeechSelections(initialSelections);
+      setSpeechStatus('Transcription complete. Review results below.');
     } catch (error) {
       setSpeechStatus(`Transcription failed: ${error.message}`);
     } finally {
       setSpeechBusy(false);
     }
+  };
+
+  const toggleSpeechSelection = (index) => {
+    setSpeechSelections((prev) => ({ ...prev, [index]: !prev[index] }));
+  };
+
+  const selectAllSpeech = () => {
+    if (!speechReview?.candidates) return;
+    const selections = {};
+    speechReview.candidates.forEach((_, index) => {
+      selections[index] = true;
+    });
+    setSpeechSelections(selections);
+  };
+
+  const deselectAllSpeech = () => {
+    setSpeechSelections({});
+  };
+
+  const handleAddSpeechSelections = async () => {
+    if (!speechReview?.candidates) return;
+    const selected = speechReview.candidates
+      .filter((_, index) => speechSelections[index])
+      .map((entry) => entry.incoming);
+    if (selected.length === 0) {
+      setSpeechStatus('No cards selected for import.');
+      return;
+    }
+    await runWithBusy('Speichere Sprach-Import…', async () => {
+      const result = await window.api.addTranscribedCards({ candidates: selected });
+      setSpeechStatus(`Added ${result.added} card(s), merged ${result.merged} duplicate(s).`);
+      setSpeechReview(null);
+      setSpeechSelections({});
+      await loadCards();
+      if (result?.duplicates?.length) {
+        showDuplicateNotice('Sprach-Import', result.duplicates);
+      }
+    });
   };
 
   const activeJobMessage = useMemo(() => {
@@ -863,7 +914,7 @@ function App() {
             </div>
             {scanSummary && (
               <div className="scan-summary">
-                <span>Cards added: {scanSummary.totalResults}</span>
+                <span>Cards found: {scanSummary.totalResults}</span>
               </div>
             )}
             {speechStatus && (
@@ -879,7 +930,8 @@ function App() {
             )}
             <p className="scanner-note">
               Sprach-Transkription läuft über ein KI-Modell (OpenAI Speech-to-Text) und verarbeitet
-              die genannten Kartennamen automatisch.
+              die genannten Kartennamen automatisch. Nach der Transkription kannst du auswählen,
+              welche Karten gespeichert werden.
             </p>
             <div className="algorithm">
               <p>
@@ -1085,6 +1137,71 @@ function App() {
           </section>
         )}
       </div>
+      {speechReview && (
+        <div className="modal-backdrop">
+          <div className="modal modal--wide">
+            <h3>Sprach-Transkription prüfen</h3>
+            <p>
+              {speechReview.candidates.length} Karte(n) erkannt. Wähle aus, welche Karten in die Datenbank
+              übernommen werden sollen.
+            </p>
+            <div className="modal-actions modal-actions--inline">
+              <button onClick={selectAllSpeech}>Alle auswählen</button>
+              <button onClick={deselectAllSpeech}>Auswahl löschen</button>
+            </div>
+            <div className="modal-list modal-list--selectable">
+              {speechReview.candidates.map((entry, index) => (
+                <label key={`${entry.spoken}-${index}`} className="modal-row modal-row--selectable">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(speechSelections[index])}
+                    onChange={() => toggleSpeechSelection(index)}
+                  />
+                  <div className="modal-row__content">
+                    <div>
+                      <strong>{entry.incoming?.en_name || entry.spoken}</strong>
+                      {entry.incoming?.passcode ? ` • ${entry.incoming.passcode}` : ''}
+                    </div>
+                    <div className="muted">
+                      Status: {entry.status}
+                      {entry.duplicate ? ' • Duplicate' : ''}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            {speechReview.duplicates?.length > 0 && (
+              <div className="modal-duplicates">
+                <h4>Duplikate gefunden</h4>
+                <div className="modal-list">
+                  {speechReview.duplicates.map((item, index) => (
+                    <div key={`${item.existing?.id || 'speech-dup'}-${index}`} className="modal-row">
+                      <div>
+                        <strong>Neu:</strong>{' '}
+                        {[item.incoming?.de_name, item.incoming?.en_name, item.incoming?.passcode]
+                          .filter(Boolean)
+                          .join(' • ') || '—'}
+                      </div>
+                      <div>
+                        <strong>Bereits vorhanden:</strong>{' '}
+                        {[item.existing?.de_name, item.existing?.en_name, item.existing?.passcode]
+                          .filter(Boolean)
+                          .join(' • ') || '—'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button onClick={() => setSpeechReview(null)}>Abbrechen</button>
+              <button className="primary" onClick={handleAddSpeechSelections}>
+                Auswahl hinzufügen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {duplicateNotice && (
         <div className="modal-backdrop">
           <div className="modal">

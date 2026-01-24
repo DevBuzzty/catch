@@ -369,6 +369,10 @@ select {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
 
+.modal--wide {
+  width: min(860px, 94vw);
+}
+
 .modal p {
   color: var(--muted);
 }
@@ -382,6 +386,10 @@ select {
   padding-right: 6px;
 }
 
+.modal-list--selectable {
+  max-height: 360px;
+}
+
 .modal-row {
   background: #0f1422;
   border: 1px solid #1f2a3c;
@@ -393,10 +401,30 @@ select {
   font-size: 14px;
 }
 
+.modal-row--selectable {
+  grid-template-columns: 20px 1fr;
+  align-items: start;
+  cursor: pointer;
+}
+
+.modal-row__content .muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.modal-duplicates {
+  margin-top: 20px;
+}
+
 .modal-actions {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+.modal-actions--inline {
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 .checkbox {

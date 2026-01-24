@@ -116,34 +116,121 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   });
 
   ipcMain.handle('scanner:transcribeAudio', async () => {
-    const result = await dialog.showOpenDialog({
-      title: 'Upload audio (speech to text)',
-      filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'm4a', 'webm', 'ogg'] }],
-      properties: ['openFile']
-    });
-    if (result.canceled || !result.filePaths?.length) {
-      return { canceled: true };
+    try {
+      const result = await dialog.showOpenDialog({
+        title: 'Upload audio (speech to text)',
+        filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'm4a', 'webm', 'ogg'] }],
+        properties: ['openFile']
+      });
+      if (result.canceled || !result.filePaths?.length) {
+        return { canceled: true };
+      }
+      const settings = db.prepare('SELECT key, value FROM settings').all();
+      const apiKey =
+        process.env.OPENAI_API_KEY ||
+        settings.find((row) => row.key === 'openai_api_key')?.value;
+      if (!apiKey) {
+        return { canceled: false, error: 'OPENAI_API_KEY is not set' };
+      }
+      const client = new OpenAI({ apiKey });
+      const filePath = result.filePaths[0];
+      const transcription = await client.audio.transcriptions.create({
+        file: fs.createReadStream(filePath),
+        model: 'gpt-4o-mini-transcribe',
+        language: 'de'
+      });
+      const text = transcription.text || '';
+      const cardNames = extractSpokenCardNames(text);
+      const userAgent = settings.find((row) => row.key === 'user_agent')?.value || 'YGO-Card-Manager/0.1';
+      const maxCandidates = Number(settings.find((row) => row.key === 'max_candidates_passcode_match')?.value || 5);
+      const { candidates, duplicates } = await processSpokenCards(cardNames, { userAgent, maxCandidates }, db, logger);
+      return { canceled: false, transcript: text, candidates, duplicates };
+    } catch (error) {
+      return { canceled: false, error: error?.message || 'Connection error' };
     }
-    const settings = db.prepare('SELECT key, value FROM settings').all();
-    const apiKey =
-      process.env.OPENAI_API_KEY ||
-      settings.find((row) => row.key === 'openai_api_key')?.value;
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is not set');
+  });
+
+  ipcMain.handle('scanner:addTranscribedCards', (_, payload) => {
+    const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
+    if (candidates.length === 0) {
+      return { added: 0, merged: 0, duplicates: [] };
     }
-    const client = new OpenAI({ apiKey });
-    const filePath = result.filePaths[0];
-    const transcription = await client.audio.transcriptions.create({
-      file: fs.createReadStream(filePath),
-      model: 'gpt-4o-mini-transcribe',
-      language: 'de'
+    const now = new Date().toISOString();
+    const insertBatch = db.prepare('INSERT INTO import_batches (source, created_at) VALUES (?, ?)');
+    const insert = db.prepare(`
+      INSERT INTO cards (
+        de_name,
+        passcode,
+        en_name,
+        status,
+        created_at,
+        updated_at,
+        last_fetched_at,
+        data_source,
+        cardcluster_url,
+        source_url,
+        card_kind,
+        card_subtypes,
+        attribute,
+        level_or_rank,
+        link_rating,
+        race,
+        atk,
+        def,
+        pendulum_scale,
+        spell_trap_property,
+        effect_text_en,
+        import_batch_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const duplicates = [];
+    let added = 0;
+    let merged = 0;
+    const transaction = db.transaction(() => {
+      const batch = insertBatch.run('speech', now);
+      const batchId = batch.lastInsertRowid;
+      candidates.forEach((incoming) => {
+        const duplicate = findDuplicate(db, {
+          de_name: incoming.de_name || '',
+          en_name: incoming.en_name || '',
+          passcode: incoming.passcode || ''
+        });
+        if (duplicate) {
+          const mergedCard = mergeCards(duplicate, incoming);
+          updateMergedCard(db, mergedCard, duplicate.id);
+          merged += 1;
+          duplicates.push({ incoming, existing: duplicate });
+          return;
+        }
+        insert.run(
+          incoming.de_name || '',
+          incoming.passcode || '',
+          incoming.en_name || '',
+          incoming.status || CARD_STATUSES.NEED_INPUT,
+          now,
+          now,
+          incoming.last_fetched_at || null,
+          incoming.data_source || null,
+          incoming.cardcluster_url || null,
+          incoming.source_url || null,
+          incoming.card_kind || null,
+          incoming.card_subtypes || null,
+          incoming.attribute || null,
+          incoming.level_or_rank ?? null,
+          incoming.link_rating ?? null,
+          incoming.race || null,
+          incoming.atk ?? null,
+          incoming.def ?? null,
+          incoming.pendulum_scale ?? null,
+          incoming.spell_trap_property || null,
+          incoming.effect_text_en || null,
+          batchId
+        );
+        added += 1;
+      });
     });
-    const text = transcription.text || '';
-    const cardNames = extractSpokenCardNames(text);
-    const userAgent = settings.find((row) => row.key === 'user_agent')?.value || 'YGO-Card-Manager/0.1';
-    const maxCandidates = Number(settings.find((row) => row.key === 'max_candidates_passcode_match')?.value || 5);
-    const { results, duplicates } = await processSpokenCards(cardNames, { userAgent, maxCandidates }, db, logger);
-    return { canceled: false, transcript: text, results, duplicates };
+    transaction();
+    return { added, merged, duplicates };
   });
 
   ipcMain.handle('cards:deleteMany', (_, ids) => {
@@ -511,32 +598,7 @@ function extractSpokenCardNames(transcript) {
 
 async function processSpokenCards(cardNames, { userAgent, maxCandidates }, db, logger) {
   const now = new Date().toISOString();
-  const insert = db.prepare(`
-    INSERT INTO cards (
-      de_name,
-      passcode,
-      en_name,
-      status,
-      created_at,
-      updated_at,
-      last_fetched_at,
-      data_source,
-      cardcluster_url,
-      source_url,
-      card_kind,
-      card_subtypes,
-      attribute,
-      level_or_rank,
-      link_rating,
-      race,
-      atk,
-      def,
-      pendulum_scale,
-      spell_trap_property,
-      effect_text_en
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const results = [];
+  const candidates = [];
   const duplicates = [];
 
   for (const spokenName of cardNames) {
@@ -581,35 +643,14 @@ async function processSpokenCards(cardNames, { userAgent, maxCandidates }, db, l
         passcode: incoming.passcode
       });
       if (duplicate) {
-        const merged = mergeCards(duplicate, incoming);
-        updateMergedCard(db, merged, duplicate.id);
         duplicates.push({ incoming, existing: duplicate });
-      } else {
-        insert.run(
-          incoming.de_name,
-          incoming.passcode,
-          incoming.en_name,
-          incoming.status,
-          now,
-          now,
-          now,
-          incoming.data_source,
-          incoming.cardcluster_url,
-          incoming.source_url,
-          incoming.card_kind,
-          incoming.card_subtypes,
-          incoming.attribute,
-          incoming.level_or_rank,
-          incoming.link_rating,
-          incoming.race,
-          incoming.atk,
-          incoming.def,
-          incoming.pendulum_scale,
-          incoming.spell_trap_property,
-          incoming.effect_text_en
-        );
       }
-      results.push({ spoken: spokenName, passcode: detail.passcode || null, en_name: enName, status: CARD_STATUSES.OK_DETAILS });
+      candidates.push({
+        spoken: spokenName,
+        status: CARD_STATUSES.OK_DETAILS,
+        incoming,
+        duplicate: Boolean(duplicate)
+      });
     } else {
       const status = fetchResult.status || CARD_STATUSES.NOT_FOUND;
       const incoming = {
@@ -642,42 +683,21 @@ async function processSpokenCards(cardNames, { userAgent, maxCandidates }, db, l
         passcode: incoming.passcode
       });
       if (duplicate) {
-        const merged = mergeCards(duplicate, incoming);
-        updateMergedCard(db, merged, duplicate.id);
         duplicates.push({ incoming, existing: duplicate });
-      } else {
-        insert.run(
-          incoming.de_name,
-          incoming.passcode,
-          incoming.en_name,
-          incoming.status,
-          now,
-          now,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null
-        );
       }
       if (fetchResult.error) {
         logger.log(db, 'error', `Speech fetch error for ${spokenName}: ${fetchResult.error.message}`);
       }
-      results.push({ spoken: spokenName, passcode: null, en_name: spokenName, status });
+      candidates.push({
+        spoken: spokenName,
+        status,
+        incoming,
+        duplicate: Boolean(duplicate)
+      });
     }
   }
 
-  return { results, duplicates };
+  return { candidates, duplicates };
 }
 
 function updateMergedCard(db, merged, keepId) {
