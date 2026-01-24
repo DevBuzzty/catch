@@ -861,6 +861,9 @@ function App() {
                 </ul>
               </div>
             )}
+            <p className="scanner-note">
+              OCR läuft lokal mit einer LSTM-basierten Engine (Tesseract), um Text zuverlässig zu erkennen.
+            </p>
             <div className="algorithm">
               <p>
                 Ziel: Aus hochgeladenen Fotos (eine oder mehrere Karten pro Bild) Kartennamen erkennen,
