@@ -46,6 +46,8 @@ function App() {
   const [speechReview, setSpeechReview] = useState(null);
   const [speechSelections, setSpeechSelections] = useState({});
   const [duplicateNotice, setDuplicateNotice] = useState(null);
+  const [openAiTestStatus, setOpenAiTestStatus] = useState('');
+  const [openAiTestBusy, setOpenAiTestBusy] = useState(false);
 
   const loadCards = async () => {
     const result = await window.api.listCards({
@@ -69,6 +71,23 @@ function App() {
   const handleCopyDiagnostics = async () => {
     if (!diagnostics) return;
     await navigator.clipboard.writeText(diagnostics);
+  };
+
+  const handleTestOpenAI = async () => {
+    setOpenAiTestBusy(true);
+    setOpenAiTestStatus('Testing OpenAI connection…');
+    try {
+      const result = await window.api.testOpenAIConnection();
+      if (result?.ok) {
+        setOpenAiTestStatus('OpenAI connection OK.');
+      } else {
+        setOpenAiTestStatus(`OpenAI test failed: ${result?.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      setOpenAiTestStatus(`OpenAI test failed: ${error.message}`);
+    } finally {
+      setOpenAiTestBusy(false);
+    }
   };
 
   const loadSettings = async () => {
@@ -1157,6 +1176,12 @@ function App() {
                   }
                 />
               </label>
+            </div>
+            <div className="settings-actions">
+              <button onClick={handleTestOpenAI} disabled={openAiTestBusy}>
+                {openAiTestBusy ? 'Testing OpenAI…' : 'Test OpenAI connection'}
+              </button>
+              {openAiTestStatus && <span className="inline-status">{openAiTestStatus}</span>}
             </div>
           </section>
         )}

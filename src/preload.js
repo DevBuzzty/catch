@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   listLogs: () => ipcRenderer.invoke('logs:list'),
   collectDiagnostics: () => ipcRenderer.invoke('diagnostics:collect'),
+  testOpenAIConnection: () => ipcRenderer.invoke('openai:testConnection'),
   scanImages: () => ipcRenderer.invoke('scanner:scanImages'),
   transcribeAudio: () => ipcRenderer.invoke('scanner:transcribeAudio'),
   addTranscribedCards: (payload) => ipcRenderer.invoke('scanner:addTranscribedCards', payload)

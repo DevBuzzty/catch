@@ -598,6 +598,27 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
     return logger.list(db);
   });
 
+  ipcMain.handle('openai:testConnection', async () => {
+    const settings = db.prepare('SELECT key, value FROM settings').all();
+    const apiKey =
+      process.env.OPENAI_API_KEY ||
+      settings.find((row) => row.key === 'openai_api_key')?.value;
+    if (!apiKey) {
+      return { ok: false, error: 'OPENAI_API_KEY is not set or invalid.' };
+    }
+    const baseUrl = settings.find((row) => row.key === 'openai_base_url')?.value;
+    const timeoutMs = Number(settings.find((row) => row.key === 'openai_timeout_ms')?.value || 30000);
+    const client = new OpenAI({ apiKey, baseURL: baseUrl || undefined, timeout: timeoutMs });
+    try {
+      await client.models.list();
+      return { ok: true };
+    } catch (error) {
+      const message = formatOpenAiError(error);
+      logger.log(db, 'error', `OpenAI connection test failed: ${message}`);
+      return { ok: false, error: message };
+    }
+  });
+
   ipcMain.handle('diagnostics:collect', () => {
     const settings = db.prepare('SELECT key, value FROM settings').all();
     const settingsMap = settings.reduce((acc, row) => {
