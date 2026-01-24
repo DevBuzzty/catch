@@ -1027,6 +1027,15 @@ function App() {
                             Merge into #{group[0].id}
                           </button>
                         )}
+                        <button
+                          className="ghost"
+                          onClick={async () => {
+                            await window.api.ignoreDuplicate(card.id);
+                            await loadDuplicates();
+                          }}
+                        >
+                          Ignore
+                        </button>
                       </li>
                     ))}
                   </ul>

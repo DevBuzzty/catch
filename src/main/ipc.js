@@ -446,7 +446,7 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   });
 
   ipcMain.handle('duplicates:list', () => {
-    const cards = db.prepare('SELECT * FROM cards').all();
+    const cards = db.prepare('SELECT * FROM cards WHERE COALESCE(ignore_duplicates, 0) = 0').all();
     const groups = new Map();
     cards.forEach((card) => {
       const keys = [];
@@ -460,6 +460,12 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
     });
 
     return Array.from(groups.values()).filter((group) => group.length > 1);
+  });
+
+  ipcMain.handle('duplicates:ignore', (_, cardId) => {
+    if (!cardId) return false;
+    db.prepare('UPDATE cards SET ignore_duplicates = 1 WHERE id = ?').run(cardId);
+    return true;
   });
 
   ipcMain.handle('duplicates:merge', (_, payload) => {
@@ -756,9 +762,12 @@ function updateMergedCard(db, merged, keepId) {
 function findDuplicate(db, card) {
     const match = db.prepare(`
       SELECT * FROM cards WHERE
-        (passcode IS NOT NULL AND passcode != '' AND passcode = ?)
-        OR (LOWER(en_name) = ? AND en_name IS NOT NULL AND en_name != '')
-        OR (LOWER(de_name) = ? AND de_name IS NOT NULL AND de_name != '')
+        COALESCE(ignore_duplicates, 0) = 0
+        AND (
+          (passcode IS NOT NULL AND passcode != '' AND passcode = ?)
+          OR (LOWER(en_name) = ? AND en_name IS NOT NULL AND en_name != '')
+          OR (LOWER(de_name) = ? AND de_name IS NOT NULL AND de_name != '')
+        )
       LIMIT 1
     `).get(card.passcode, card.en_name.toLowerCase(), card.de_name.toLowerCase());
   return match;

@@ -99,6 +99,7 @@ function ensureDatabase(basePath) {
   ensureColumn(db, 'cards', 'import_batch_id', 'INTEGER');
   ensureColumn(db, 'cards', 'data_source', 'TEXT');
   ensureColumn(db, 'cards', 'source_url', 'TEXT');
+  ensureColumn(db, 'cards', 'ignore_duplicates', 'INTEGER');
   ensureColumn(db, 'jobs', 'current_action', 'TEXT');
 
   const insertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');

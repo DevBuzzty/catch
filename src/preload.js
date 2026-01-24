@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   deleteImportBatch: (batchId) => ipcRenderer.invoke('cards:deleteImportBatch', batchId),
   pasteCards: (payload) => ipcRenderer.invoke('cards:paste', payload),
   listDuplicates: () => ipcRenderer.invoke('duplicates:list'),
+  ignoreDuplicate: (cardId) => ipcRenderer.invoke('duplicates:ignore', cardId),
   mergeDuplicate: (payload) => ipcRenderer.invoke('duplicates:merge', payload),
   importDeckFromUrl: (payload) => ipcRenderer.invoke('decks:importFromUrl', payload),
   listDecks: () => ipcRenderer.invoke('decks:list'),
