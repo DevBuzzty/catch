@@ -485,19 +485,92 @@ function extractPasscodesFromText(text) {
   return Array.from(new Set(matches));
 }
 
-function extractNameCandidate(text) {
-  const lines = String(text || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const nameLine = lines.find((line) => /[a-zA-Z]/.test(line) && line.length >= 3) || '';
-  return nameLine.replace(/[^a-zA-Z0-9'’\-\s]/g, '').trim();
+function groupWordsIntoLines(words) {
+  const sorted = [...words]
+    .filter((word) => word.text && word.confidence > 45)
+    .map((word) => ({
+      text: word.text,
+      confidence: word.confidence,
+      x0: word.bbox.x0,
+      x1: word.bbox.x1,
+      y0: word.bbox.y0,
+      y1: word.bbox.y1,
+      yMid: (word.bbox.y0 + word.bbox.y1) / 2
+    }))
+    .sort((a, b) => a.yMid - b.yMid || a.x0 - b.x0);
+
+  const lines = [];
+  sorted.forEach((word) => {
+    const existing = lines.find((line) => Math.abs(line.yMid - word.yMid) < 14);
+    if (existing) {
+      existing.words.push(word);
+      existing.yMid = (existing.yMid + word.yMid) / 2;
+    } else {
+      lines.push({ yMid: word.yMid, words: [word] });
+    }
+  });
+
+  return lines.map((line) => {
+    const words = line.words.sort((a, b) => a.x0 - b.x0);
+    const text = words.map((word) => word.text).join(' ').trim();
+    const confidence = words.reduce((sum, word) => sum + word.confidence, 0) / words.length;
+    return { text, confidence };
+  });
+}
+
+function extractNameCandidates(words) {
+  const lines = groupWordsIntoLines(words || []);
+  const candidates = lines
+    .map((line) => ({
+      text: line.text.replace(/[^a-zA-Z0-9'’\-\s]/g, '').trim(),
+      confidence: line.confidence
+    }))
+    .filter((line) => line.text.length >= 3)
+    .filter((line) => /[a-zA-Z]/.test(line.text))
+    .filter((line) => !/\b(ATK|DEF|LV|LEVEL|KARTENNAME|EFFECT)\b/i.test(line.text))
+    .filter((line) => {
+      const letters = (line.text.match(/[a-zA-Z]/g) || []).length;
+      const digits = (line.text.match(/\d/g) || []).length;
+      return letters >= digits;
+    })
+    .sort((a, b) => b.confidence - a.confidence);
+
+  const unique = new Set();
+  const result = [];
+  candidates.forEach((candidate) => {
+    const key = candidate.text.toLowerCase();
+    if (!unique.has(key)) {
+      unique.add(key);
+      result.push(candidate.text);
+    }
+  });
+  return result.slice(0, 5);
+}
+
+async function resolveByNameCandidates(nameCandidates, options) {
+  for (const name of nameCandidates) {
+    const result = await fetchCardDetails({
+      passcode: '',
+      en_name: name,
+      de_name: '',
+      userAgent: options.userAgent,
+      maxCandidates: options.maxCandidates
+    }).catch((error) => ({ status: CARD_STATUSES.ERROR, error }));
+    if (result.status === CARD_STATUSES.OK_DETAILS) {
+      return { ...result, nameCandidate: name };
+    }
+  }
+  return null;
 }
 
 async function scanImages(filePaths, { userAgent, maxCandidates }, db, logger) {
   const worker = await createWorker();
   await worker.loadLanguage('eng+deu');
   await worker.initialize('eng+deu');
+  await worker.setParameters({
+    tessedit_pageseg_mode: '6',
+    preserve_interword_spaces: '1'
+  });
 
   const now = new Date().toISOString();
   const insert = db.prepare(`
@@ -530,21 +603,28 @@ async function scanImages(filePaths, { userAgent, maxCandidates }, db, logger) {
   for (const filePath of filePaths) {
     const { data } = await worker.recognize(filePath);
     const passcodes = extractPasscodesFromText(data.text);
-    const nameCandidate = extractNameCandidate(data.text);
+    const nameCandidates = extractNameCandidates(data.words || []);
     const candidates = passcodes.length > 0 ? passcodes : [null];
 
     for (const passcode of candidates) {
-      const fetchResult = await fetchCardDetails({
+      let fetchResult = await fetchCardDetails({
         passcode: passcode || '',
-        en_name: nameCandidate || '',
+        en_name: nameCandidates[0] || '',
         de_name: '',
         userAgent,
         maxCandidates
       }).catch((error) => ({ status: CARD_STATUSES.ERROR, error }));
 
+      if (fetchResult.status !== CARD_STATUSES.OK_DETAILS && nameCandidates.length > 0) {
+        const fallback = await resolveByNameCandidates(nameCandidates, { userAgent, maxCandidates });
+        if (fallback) {
+          fetchResult = fallback;
+        }
+      }
+
       if (fetchResult.status === CARD_STATUSES.OK_DETAILS) {
         const detail = fetchResult.cardDetails;
-        const enName = detail.name || nameCandidate || '';
+        const enName = detail.name || fetchResult.nameCandidate || nameCandidates[0] || '';
         const incoming = {
           de_name: '',
           passcode: detail.passcode || passcode || '',
@@ -608,7 +688,7 @@ async function scanImages(filePaths, { userAgent, maxCandidates }, db, logger) {
         const incoming = {
           de_name: '',
           passcode: passcode || '',
-          en_name: nameCandidate || '',
+          en_name: nameCandidates[0] || '',
           status,
           updated_at: now,
           last_fetched_at: null,
@@ -665,7 +745,7 @@ async function scanImages(filePaths, { userAgent, maxCandidates }, db, logger) {
         if (fetchResult.error) {
           logger.log(db, 'error', `Scan fetch error for ${filePath}: ${fetchResult.error.message}`);
         }
-        results.push({ filePath, passcode: passcode || null, en_name: nameCandidate || null, status });
+        results.push({ filePath, passcode: passcode || null, en_name: nameCandidates[0] || null, status });
       }
     }
   }
@@ -728,13 +808,13 @@ function updateMergedCard(db, merged, keepId) {
 }
 
 function findDuplicate(db, card) {
-  const match = db.prepare(`
-    SELECT * FROM cards WHERE
-      (passcode IS NOT NULL AND passcode != '' AND passcode = ?)
-      OR (LOWER(en_name) = ? AND en_name IS NOT NULL AND en_name != '')
-      OR (LOWER(de_name) = ? AND de_name IS NOT NULL AND de_name != '')
-    LIMIT 1
-  `).get(card.passcode, card.en_name.toLowerCase(), card.de_name.toLowerCase());
+    const match = db.prepare(`
+      SELECT * FROM cards WHERE
+        (passcode IS NOT NULL AND passcode != '' AND passcode = ?)
+        OR (LOWER(en_name) = ? AND en_name IS NOT NULL AND en_name != '')
+        OR (LOWER(de_name) = ? AND de_name IS NOT NULL AND de_name != '')
+      LIMIT 1
+    `).get(card.passcode, card.en_name.toLowerCase(), card.de_name.toLowerCase());
   return match;
 }
 
