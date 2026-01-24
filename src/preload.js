@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('api', {
   clearDetails: (id) => ipcRenderer.invoke('cards:clearDetails', id),
   importCsv: (payload) => ipcRenderer.invoke('cards:importCsv', payload),
   importCsvFile: () => ipcRenderer.invoke('cards:importCsvFile'),
+  previewImport: (payload) => ipcRenderer.invoke('cards:previewImport', payload),
+  addPreviewCards: (payload) => ipcRenderer.invoke('cards:addPreviewCards', payload),
+  fetchPreviewDetails: (payload) => ipcRenderer.invoke('cards:fetchPreviewDetails', payload),
   exportCsv: () => ipcRenderer.invoke('cards:exportCsv'),
   getLastImportBatch: () => ipcRenderer.invoke('cards:getLastImportBatch'),
   listCardsByImportBatch: (batchId) => ipcRenderer.invoke('cards:listByImportBatch', batchId),
@@ -34,8 +37,5 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   listLogs: () => ipcRenderer.invoke('logs:list'),
   collectDiagnostics: () => ipcRenderer.invoke('diagnostics:collect'),
-  testOpenAIConnection: () => ipcRenderer.invoke('openai:testConnection'),
-  scanImages: () => ipcRenderer.invoke('scanner:scanImages'),
-  transcribeAudio: () => ipcRenderer.invoke('scanner:transcribeAudio'),
-  addTranscribedCards: (payload) => ipcRenderer.invoke('scanner:addTranscribedCards', payload)
+  testOpenAIConnection: () => ipcRenderer.invoke('openai:testConnection')
 });

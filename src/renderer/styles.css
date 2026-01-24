@@ -448,6 +448,32 @@ select {
   overflow: hidden;
 }
 
+.import-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #0f1322;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+.import-table th,
+.import-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+  text-align: left;
+}
+
+.import-table input {
+  width: 100%;
+  background: #0b0f1c;
+  color: #e7ecf7;
+  border: 1px solid #1f2a3c;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
 .sort-button {
   background: transparent;
   border: none;

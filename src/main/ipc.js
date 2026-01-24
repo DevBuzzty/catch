@@ -279,6 +279,156 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
     return { duplicates, batchId };
   });
 
+  ipcMain.handle('cards:previewImport', (_, payload) => {
+    const { rows = [] } = payload || {};
+    const duplicates = [];
+    const candidates = [];
+    rows.forEach((row) => {
+      const deName = row.de_name || '';
+      const enName = row.en_name || '';
+      const passcode = row.passcode ? String(row.passcode) : '';
+      const duplicate = findDuplicate(db, { de_name: deName, en_name: enName, passcode });
+      if (duplicate) {
+        duplicates.push({ incoming: { de_name: deName, en_name: enName, passcode }, existing: duplicate });
+      } else {
+        candidates.push({
+          de_name: deName,
+          en_name: enName,
+          passcode,
+          status: CARD_STATUSES.NEED_INPUT
+        });
+      }
+    });
+    return { candidates, duplicates };
+  });
+
+  ipcMain.handle('cards:fetchPreviewDetails', async (_, payload) => {
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    const settings = db.prepare('SELECT key, value FROM settings').all();
+    const userAgent = settings.find((row) => row.key === 'user_agent')?.value || 'YGO-Card-Manager/0.1';
+    const maxCandidates = Number(settings.find((row) => row.key === 'max_candidates_passcode_match')?.value || 5);
+    const updated = [];
+    for (const row of rows) {
+      const fetchResult = await fetchCardDetails({
+        passcode: row.passcode || '',
+        en_name: row.en_name || '',
+        de_name: row.de_name || '',
+        userAgent,
+        maxCandidates
+      }).catch((error) => ({ status: CARD_STATUSES.ERROR, error }));
+      if (fetchResult.status === CARD_STATUSES.OK_DETAILS) {
+        const detail = fetchResult.cardDetails || {};
+        updated.push({
+          ...row,
+          passcode: row.passcode || detail.passcode || '',
+          en_name: row.en_name || detail.name || '',
+          status: CARD_STATUSES.OK_DETAILS,
+          last_fetched_at: new Date().toISOString(),
+          data_source: detail.data_source || null,
+          source_url: detail.source_url || null,
+          cardcluster_url: detail.cardcluster_url || null,
+          card_kind: detail.card_kind || null,
+          card_subtypes: detail.card_subtypes || null,
+          attribute: detail.attribute || null,
+          level_or_rank: detail.level_or_rank ?? null,
+          link_rating: detail.link_rating ?? null,
+          race: detail.race || null,
+          atk: detail.atk ?? null,
+          def: detail.def ?? null,
+          pendulum_scale: detail.pendulum_scale ?? null,
+          spell_trap_property: detail.spell_trap_property || null,
+          effect_text_en: detail.effect_text_en || null
+        });
+      } else {
+        updated.push({
+          ...row,
+          status: fetchResult.status || CARD_STATUSES.NOT_FOUND
+        });
+        if (fetchResult.error) {
+          logger.log(db, 'error', `Preview fetch error for ${row.en_name || row.de_name || row.passcode}: ${fetchResult.error.message}`);
+        }
+      }
+    }
+    return { rows: updated };
+  });
+
+  ipcMain.handle('cards:addPreviewCards', (_, payload) => {
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    if (rows.length === 0) return { added: 0, duplicates: [] };
+    const now = new Date().toISOString();
+    const insertBatch = db.prepare('INSERT INTO import_batches (source, created_at) VALUES (?, ?)');
+    const insertCard = db.prepare(`
+      INSERT INTO cards (
+        de_name,
+        passcode,
+        en_name,
+        status,
+        created_at,
+        updated_at,
+        last_fetched_at,
+        data_source,
+        cardcluster_url,
+        source_url,
+        card_kind,
+        card_subtypes,
+        attribute,
+        level_or_rank,
+        link_rating,
+        race,
+        atk,
+        def,
+        pendulum_scale,
+        spell_trap_property,
+        effect_text_en,
+        import_batch_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const duplicates = [];
+    let added = 0;
+    const transaction = db.transaction(() => {
+      const batch = insertBatch.run('import-preview', now);
+      const batchId = batch.lastInsertRowid;
+      rows.forEach((row) => {
+        const duplicate = findDuplicate(db, {
+          de_name: row.de_name || '',
+          en_name: row.en_name || '',
+          passcode: row.passcode || ''
+        });
+        if (duplicate) {
+          duplicates.push({ incoming: row, existing: duplicate });
+          return;
+        }
+        insertCard.run(
+          row.de_name || '',
+          row.passcode || '',
+          row.en_name || '',
+          row.status || CARD_STATUSES.NEED_INPUT,
+          now,
+          now,
+          row.last_fetched_at || null,
+          row.data_source || null,
+          row.cardcluster_url || null,
+          row.source_url || null,
+          row.card_kind || null,
+          row.card_subtypes || null,
+          row.attribute || null,
+          row.level_or_rank ?? null,
+          row.link_rating ?? null,
+          row.race || null,
+          row.atk ?? null,
+          row.def ?? null,
+          row.pendulum_scale ?? null,
+          row.spell_trap_property || null,
+          row.effect_text_en || null,
+          batchId
+        );
+        added += 1;
+      });
+    });
+    transaction();
+    return { added, duplicates };
+  });
+
   ipcMain.handle('cards:importCsvFile', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Import CSV',

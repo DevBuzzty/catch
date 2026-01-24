@@ -8,8 +8,8 @@ const emptyCard = {
 
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard' },
+  { id: 'import', label: 'Import' },
   { id: 'decks', label: 'Decks' },
-  { id: 'scanner', label: 'Scanner' },
   { id: 'duplicates', label: 'Duplicates' },
   { id: 'jobs', label: 'Jobs' },
   { id: 'settings', label: 'Settings' },
@@ -38,13 +38,9 @@ function App() {
   const [lastImport, setLastImport] = useState(null);
   const [sortKey, setSortKey] = useState('updated_at');
   const [sortDir, setSortDir] = useState('desc');
-  const [scanResults, setScanResults] = useState([]);
-  const [scanSummary, setScanSummary] = useState(null);
-  const [speechTranscript, setSpeechTranscript] = useState('');
-  const [speechBusy, setSpeechBusy] = useState(false);
-  const [speechStatus, setSpeechStatus] = useState('');
-  const [speechReview, setSpeechReview] = useState(null);
-  const [speechSelections, setSpeechSelections] = useState({});
+  const [importRows, setImportRows] = useState([]);
+  const [importDuplicates, setImportDuplicates] = useState([]);
+  const [importStatus, setImportStatus] = useState('');
   const [duplicateNotice, setDuplicateNotice] = useState(null);
   const [openAiTestStatus, setOpenAiTestStatus] = useState('');
   const [openAiTestBusy, setOpenAiTestBusy] = useState(false);
@@ -204,12 +200,10 @@ function App() {
       const fileResult = await window.api.importCsvFile();
       if (fileResult?.canceled) return;
       const rows = parseCsv(fileResult.content || '');
-      const result = await window.api.importCsv({ rows, source: 'csv' });
-      showDuplicateNotice('CSV-Import', result?.duplicates || []);
-      if (result?.batchId) {
-        await loadLastImport();
-      }
-      await loadCards();
+      const result = await window.api.previewImport({ rows });
+      setImportDuplicates(result?.duplicates || []);
+      setImportRows(result?.candidates || []);
+      setImportStatus(`Importiert: ${result?.candidates?.length || 0} neu, ${result?.duplicates?.length || 0} doppelt.`);
     });
   };
 
@@ -227,11 +221,34 @@ function App() {
     if (!input) return;
     const lines = input.split('\n');
     await runWithBusy('Füge Karten ein…', async () => {
-      const result = await window.api.pasteCards({ lines });
-      showDuplicateNotice('Einfügen', result?.duplicates || []);
-      if (result?.batchId) {
-        await loadLastImport();
-      }
+      const rows = lines
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((name) => ({ de_name: name, en_name: '', passcode: '' }));
+      const result = await window.api.previewImport({ rows });
+      setImportDuplicates(result?.duplicates || []);
+      setImportRows(result?.candidates || []);
+      setImportStatus(`Importiert: ${result?.candidates?.length || 0} neu, ${result?.duplicates?.length || 0} doppelt.`);
+    });
+  };
+
+  const handleImportFetchAll = async () => {
+    if (importRows.length === 0) return;
+    await runWithBusy('Fetch details (Import)…', async () => {
+      const result = await window.api.fetchPreviewDetails({ rows: importRows });
+      setImportRows(result?.rows || []);
+    });
+  };
+
+  const handleAddToDashboard = async () => {
+    if (importRows.length === 0) return;
+    await runWithBusy('Übertrage ins Dashboard…', async () => {
+      const result = await window.api.addPreviewCards({ rows: importRows });
+      showDuplicateNotice('Import', result?.duplicates || []);
+      setImportRows([]);
+      setImportDuplicates([]);
+      setImportStatus('');
+      await loadLastImport();
       await loadCards();
     });
   };
@@ -383,74 +400,11 @@ function App() {
   };
 
 
-  const handleTranscribeAudio = async () => {
-    setSpeechBusy(true);
-    setSpeechStatus('Transcribing audio…');
-    setSpeechReview(null);
-    setSpeechSelections({});
-    try {
-      const result = await window.api.transcribeAudio();
-      if (result?.canceled) {
-        setSpeechStatus('');
-        return;
-      }
-      if (result?.error) {
-        setSpeechStatus(`Transcription failed: ${result.error}`);
-        return;
-      }
-      const candidates = result?.candidates || [];
-      setSpeechTranscript(result.transcript || '');
-      setScanResults(candidates);
-      setScanSummary({ totalImages: 0, totalResults: candidates.length });
-      setSpeechReview({ candidates, duplicates: result?.duplicates || [] });
-      const initialSelections = {};
-      candidates.forEach((_, index) => {
-        initialSelections[index] = true;
-      });
-      setSpeechSelections(initialSelections);
-      setSpeechStatus('Transcription complete. Review results below.');
-    } catch (error) {
-      setSpeechStatus(`Transcription failed: ${error.message}`);
-    } finally {
-      setSpeechBusy(false);
-    }
-  };
-
-  const toggleSpeechSelection = (index) => {
-    setSpeechSelections((prev) => ({ ...prev, [index]: !prev[index] }));
-  };
-
-  const selectAllSpeech = () => {
-    if (!speechReview?.candidates) return;
-    const selections = {};
-    speechReview.candidates.forEach((_, index) => {
-      selections[index] = true;
-    });
-    setSpeechSelections(selections);
-  };
-
-  const deselectAllSpeech = () => {
-    setSpeechSelections({});
-  };
-
-  const handleAddSpeechSelections = async () => {
-    if (!speechReview?.candidates) return;
-    const selected = speechReview.candidates
-      .filter((_, index) => speechSelections[index])
-      .map((entry) => entry.incoming);
-    if (selected.length === 0) {
-      setSpeechStatus('No cards selected for import.');
-      return;
-    }
-    await runWithBusy('Speichere Sprach-Import…', async () => {
-      const result = await window.api.addTranscribedCards({ candidates: selected });
-      setSpeechStatus(`Added ${result.added} card(s), merged ${result.merged} duplicate(s).`);
-      setSpeechReview(null);
-      setSpeechSelections({});
-      await loadCards();
-      if (result?.duplicates?.length) {
-        showDuplicateNotice('Sprach-Import', result.duplicates);
-      }
+  const handleImportFieldChange = (index, field, value) => {
+    setImportRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
     });
   };
 
@@ -535,12 +489,6 @@ function App() {
                 </label>
               </div>
               <div className="filters__row filters__row--actions">
-                <div className="action-group">
-                  <span className="action-label">Import</span>
-                  <button onClick={handleImport}>Import CSV</button>
-                  <button onClick={handleExport}>Export CSV</button>
-                  <button onClick={handlePasteNames}>Paste Names</button>
-                </div>
                 <div className="action-group">
                   <span className="action-label">Fetch</span>
                   <button onClick={handleFetchAll}>Fetch all</button>
@@ -934,101 +882,71 @@ function App() {
           </section>
         )}
 
-        {activeMenu === 'scanner' && (
+        {activeMenu === 'import' && (
           <section className="panel fade-in">
             <div className="panel__header">
-              <h3>Sprach-Scanner</h3>
+              <h3>Import</h3>
               <div className="panel__actions">
-                <button className="primary" onClick={handleTranscribeAudio} disabled={speechBusy}>
-                  {speechBusy ? 'Transcribing…' : 'Record & Transcribe'}
+                <button onClick={handleImport}>Import CSV</button>
+                <button onClick={handlePasteNames}>Paste Names</button>
+                <button onClick={handleExport}>Export CSV</button>
+                <button onClick={handleImportFetchAll} disabled={importRows.length === 0}>
+                  Fetch All (Import)
+                </button>
+                <button className="primary" onClick={handleAddToDashboard} disabled={importRows.length === 0}>
+                  Add to Dashboard
                 </button>
               </div>
             </div>
-            {scanSummary && (
-              <div className="scan-summary">
-                <span>Cards found: {scanSummary.totalResults}</span>
+            {importStatus && <div className="scan-summary"><span>{importStatus}</span></div>}
+            {importDuplicates.length > 0 && (
+              <div className="duplicate-group">
+                <strong>Duplikate gefunden:</strong>
+                <ul>
+                  {importDuplicates.map((item, index) => (
+                    <li key={`${item.existing?.id || 'dup'}-${index}`}>
+                      {[item.incoming?.de_name, item.incoming?.en_name, item.incoming?.passcode].filter(Boolean).join(' • ')} →
+                      bereits vorhanden: {[item.existing?.de_name, item.existing?.en_name, item.existing?.passcode].filter(Boolean).join(' • ')}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
-            {speechStatus && (
-              <div className="scan-summary">
-                <span>{speechStatus}</span>
-              </div>
-            )}
-            {speechTranscript && (
-              <div className="scan-results">
-                <h4>Transcript</h4>
-                <p>{speechTranscript}</p>
-              </div>
-            )}
-            <p className="scanner-note">
-              Sprach-Transkription läuft über ein KI-Modell (OpenAI Speech-to-Text) und verarbeitet
-              die genannten Kartennamen automatisch. Nach der Transkription kannst du auswählen,
-              welche Karten gespeichert werden.
-            </p>
-            <div className="algorithm">
-              <p>
-                Ziel: Du sprichst mehrere Kartennamen ein, die KI transkribiert sie, sucht Passcodes und
-                englische Namen online und speichert die Ergebnisse in der Datenbank.
-              </p>
-              <ol>
-                <li>
-                  <strong>Audio-Input & Transkription</strong>
-                  <ul>
-                    <li>Audio aufnehmen oder Datei hochladen (z. B. WAV, MP3, M4A).</li>
-                    <li>Transkription via OpenAI Speech-to-Text (de/eng gemischt möglich).</li>
-                    <li>Segmentierung in einzelne Kartennamen (Kommas/Pausen).</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>Namens-Normalisierung</strong>
-                  <ul>
-                    <li>Trimmen, Sonderzeichen bereinigen, doppelte Leerzeichen entfernen.</li>
-                    <li>Optional: GPT-basiertes Post-Processing für besonders unsaubere Transkripte.</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>Online-Suche (sequenziell pro Datenbank)</strong>
-                  <ul>
-                    <li><em>Quelle 1: Cardcluster</em> – Suche per Name, HTML-Scan, Detailseite parsen.</li>
-                    <li><em>Quelle 2: YGOPRODeck</em> – HTML-Suche → API-Fallback.</li>
-                    <li>Falls keine Quelle matcht: status=NOT_FOUND.</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>Validierung</strong>
-                  <ul>
-                    <li>Gefundene Passcodes prüfen, englische Namen übernehmen.</li>
-                    <li>Abweichungen loggen und in der Detailansicht korrigierbar machen.</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>Datenbank-Insert</strong>
-                  <ul>
-                    <li>Duplikate prüfen (passcode/en_name/de_name).</li>
-                    <li>Neue Karten hinzufügen, bestehende via Merge-Logik aktualisieren.</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>Job-Status & Logging</strong>
-                  <ul>
-                    <li>Pro Karte Fortschritt loggen (Speech → Suche → Detail → Insert).</li>
-                    <li>UI zeigt Fortschritt (done/total) und aktuelle Karte.</li>
-                    <li>Fehler: error_message speichern, raw_url (falls vorhanden) hinterlegen.</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>Qualitätssicherung</strong>
-                  <ul>
-                    <li>Konfidenz-Score je Karte speichern (Speech + Matching).</li>
-                    <li>Unter einem Threshold: status=NEED_INPUT setzen und Review anfordern.</li>
-                  </ul>
-                </li>
-              </ol>
-              <p className="algorithm__note">
-                Hinweis: Die Speech-to-Text Parameter und das Matching sind absichtlich getrennt,
-                damit du sie im Settings-Tab feinjustieren kannst.
-              </p>
-            </div>
+            <table className="import-table">
+              <thead>
+                <tr>
+                  <th>DE</th>
+                  <th>Passcode</th>
+                  <th>EN</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importRows.map((row, index) => (
+                  <tr key={`${row.passcode || row.en_name || row.de_name}-${index}`}>
+                    <td>
+                      <input
+                        value={row.de_name || ''}
+                        onChange={(event) => handleImportFieldChange(index, 'de_name', event.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={row.passcode || ''}
+                        onChange={(event) => handleImportFieldChange(index, 'passcode', event.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={row.en_name || ''}
+                        onChange={(event) => handleImportFieldChange(index, 'en_name', event.target.value)}
+                      />
+                    </td>
+                    <td>{row.status || 'NEED_INPUT'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
         )}
 
@@ -1214,71 +1132,6 @@ function App() {
           </section>
         )}
       </div>
-      {speechReview && (
-        <div className="modal-backdrop">
-          <div className="modal modal--wide">
-            <h3>Sprach-Transkription prüfen</h3>
-            <p>
-              {speechReview.candidates.length} Karte(n) erkannt. Wähle aus, welche Karten in die Datenbank
-              übernommen werden sollen.
-            </p>
-            <div className="modal-actions modal-actions--inline">
-              <button onClick={selectAllSpeech}>Alle auswählen</button>
-              <button onClick={deselectAllSpeech}>Auswahl löschen</button>
-            </div>
-            <div className="modal-list modal-list--selectable">
-              {speechReview.candidates.map((entry, index) => (
-                <label key={`${entry.spoken}-${index}`} className="modal-row modal-row--selectable">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(speechSelections[index])}
-                    onChange={() => toggleSpeechSelection(index)}
-                  />
-                  <div className="modal-row__content">
-                    <div>
-                      <strong>{entry.incoming?.en_name || entry.spoken}</strong>
-                      {entry.incoming?.passcode ? ` • ${entry.incoming.passcode}` : ''}
-                    </div>
-                    <div className="muted">
-                      Status: {entry.status}
-                      {entry.duplicate ? ' • Duplicate' : ''}
-                    </div>
-                  </div>
-                </label>
-              ))}
-            </div>
-            {speechReview.duplicates?.length > 0 && (
-              <div className="modal-duplicates">
-                <h4>Duplikate gefunden</h4>
-                <div className="modal-list">
-                  {speechReview.duplicates.map((item, index) => (
-                    <div key={`${item.existing?.id || 'speech-dup'}-${index}`} className="modal-row">
-                      <div>
-                        <strong>Neu:</strong>{' '}
-                        {[item.incoming?.de_name, item.incoming?.en_name, item.incoming?.passcode]
-                          .filter(Boolean)
-                          .join(' • ') || '—'}
-                      </div>
-                      <div>
-                        <strong>Bereits vorhanden:</strong>{' '}
-                        {[item.existing?.de_name, item.existing?.en_name, item.existing?.passcode]
-                          .filter(Boolean)
-                          .join(' • ') || '—'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="modal-actions">
-              <button onClick={() => setSpeechReview(null)}>Abbrechen</button>
-              <button className="primary" onClick={handleAddSpeechSelections}>
-                Auswahl hinzufügen
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {duplicateNotice && (
         <div className="modal-backdrop">
           <div className="modal">
@@ -1319,9 +1172,9 @@ function App() {
 
 function parseCsv(input) {
   const lines = input.trim().split(/\r?\n/);
-  const header = lines.shift().split(',').map((item) => item.trim());
+  const header = lines.shift().split(';').map((item) => item.trim());
   return lines.map((line) => {
-    const values = line.split(',');
+    const values = line.split(';');
     const row = {};
     header.forEach((key, idx) => {
       row[key] = values[idx] ? values[idx].trim() : '';
@@ -1333,9 +1186,9 @@ function parseCsv(input) {
 function toCsv(rows) {
   if (!rows.length) return '';
   const header = Object.keys(rows[0]);
-  const lines = [header.join(',')];
+  const lines = [header.join(';')];
   rows.forEach((row) => {
-    lines.push(header.map((key) => JSON.stringify(row[key] ?? '')).join(','));
+    lines.push(header.map((key) => JSON.stringify(row[key] ?? '')).join(';'));
   });
   return lines.join('\n');
 }
