@@ -22,7 +22,7 @@
     "cheerio": "^1.0.0-rc.12",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "tesseract.js": "^5.0.5"
+    "openai": "^4.81.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",

@@ -2,7 +2,7 @@ const { dialog } = require('electron');
 const fs = require('fs');
 const { CARD_STATUSES } = require('../shared/constants');
 const { fetchDeckFromUrl, fetchCardDetails } = require('./scraper');
-const { createWorker } = require('tesseract.js');
+const OpenAI = require('openai');
 
 function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   ipcMain.handle('cards:list', (_, params = {}) => {
@@ -112,19 +112,36 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   });
 
   ipcMain.handle('scanner:scanImages', async () => {
+    return { canceled: true, error: 'Scanner disabled' };
+  });
+
+  ipcMain.handle('scanner:transcribeAudio', async () => {
     const result = await dialog.showOpenDialog({
-      title: 'Scan card images',
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'heic'] }],
-      properties: ['openFile', 'multiSelections']
+      title: 'Upload audio (speech to text)',
+      filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'm4a', 'webm', 'ogg'] }],
+      properties: ['openFile']
     });
     if (result.canceled || !result.filePaths?.length) {
       return { canceled: true };
     }
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY is not set');
+    }
+    const client = new OpenAI({ apiKey });
+    const filePath = result.filePaths[0];
+    const transcription = await client.audio.transcriptions.create({
+      file: fs.createReadStream(filePath),
+      model: 'gpt-4o-mini-transcribe',
+      language: 'de'
+    });
+    const text = transcription.text || '';
+    const cardNames = extractSpokenCardNames(text);
     const settings = db.prepare('SELECT key, value FROM settings').all();
     const userAgent = settings.find((row) => row.key === 'user_agent')?.value || 'YGO-Card-Manager/0.1';
     const maxCandidates = Number(settings.find((row) => row.key === 'max_candidates_passcode_match')?.value || 5);
-    const scanResult = await scanImages(result.filePaths, { userAgent, maxCandidates }, db, logger);
-    return { canceled: false, ...scanResult };
+    const results = await processSpokenCards(cardNames, { userAgent, maxCandidates }, db, logger);
+    return { canceled: false, transcript: text, results };
   });
 
   ipcMain.handle('cards:deleteMany', (_, ids) => {
@@ -480,99 +497,14 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   });
 }
 
-function extractPasscodesFromText(text) {
-  const matches = text.match(/\b\d{4,12}\b/g) || [];
-  return Array.from(new Set(matches));
+function extractSpokenCardNames(transcript) {
+  return String(transcript || '')
+    .split(/[,\n;]+/g)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3);
 }
 
-function groupWordsIntoLines(words) {
-  const sorted = [...words]
-    .filter((word) => word.text && word.confidence > 45)
-    .map((word) => ({
-      text: word.text,
-      confidence: word.confidence,
-      x0: word.bbox.x0,
-      x1: word.bbox.x1,
-      y0: word.bbox.y0,
-      y1: word.bbox.y1,
-      yMid: (word.bbox.y0 + word.bbox.y1) / 2
-    }))
-    .sort((a, b) => a.yMid - b.yMid || a.x0 - b.x0);
-
-  const lines = [];
-  sorted.forEach((word) => {
-    const existing = lines.find((line) => Math.abs(line.yMid - word.yMid) < 14);
-    if (existing) {
-      existing.words.push(word);
-      existing.yMid = (existing.yMid + word.yMid) / 2;
-    } else {
-      lines.push({ yMid: word.yMid, words: [word] });
-    }
-  });
-
-  return lines.map((line) => {
-    const words = line.words.sort((a, b) => a.x0 - b.x0);
-    const text = words.map((word) => word.text).join(' ').trim();
-    const confidence = words.reduce((sum, word) => sum + word.confidence, 0) / words.length;
-    return { text, confidence };
-  });
-}
-
-function extractNameCandidates(words) {
-  const lines = groupWordsIntoLines(words || []);
-  const candidates = lines
-    .map((line) => ({
-      text: line.text.replace(/[^a-zA-Z0-9'’\-\s]/g, '').trim(),
-      confidence: line.confidence
-    }))
-    .filter((line) => line.text.length >= 3)
-    .filter((line) => /[a-zA-Z]/.test(line.text))
-    .filter((line) => !/\b(ATK|DEF|LV|LEVEL|KARTENNAME|EFFECT)\b/i.test(line.text))
-    .filter((line) => {
-      const letters = (line.text.match(/[a-zA-Z]/g) || []).length;
-      const digits = (line.text.match(/\d/g) || []).length;
-      return letters >= digits;
-    })
-    .sort((a, b) => b.confidence - a.confidence);
-
-  const unique = new Set();
-  const result = [];
-  candidates.forEach((candidate) => {
-    const key = candidate.text.toLowerCase();
-    if (!unique.has(key)) {
-      unique.add(key);
-      result.push(candidate.text);
-    }
-  });
-  return result.slice(0, 5);
-}
-
-async function resolveByNameCandidates(nameCandidates, options) {
-  for (const name of nameCandidates) {
-    const result = await fetchCardDetails({
-      passcode: '',
-      en_name: name,
-      de_name: '',
-      userAgent: options.userAgent,
-      maxCandidates: options.maxCandidates
-    }).catch((error) => ({ status: CARD_STATUSES.ERROR, error }));
-    if (result.status === CARD_STATUSES.OK_DETAILS) {
-      return { ...result, nameCandidate: name };
-    }
-  }
-  return null;
-}
-
-async function scanImages(filePaths, { userAgent, maxCandidates }, db, logger) {
-  const worker = await createWorker();
-  await worker.loadLanguage('eng+deu');
-  await worker.initialize('eng+deu');
-  await worker.setParameters({
-    tessedit_pageseg_mode: '6',
-    preserve_interword_spaces: '1',
-    tessedit_ocr_engine_mode: '1'
-  });
-
+async function processSpokenCards(cardNames, { userAgent, maxCandidates }, db, logger) {
   const now = new Date().toISOString();
   const insert = db.prepare(`
     INSERT INTO cards (
@@ -599,160 +531,145 @@ async function scanImages(filePaths, { userAgent, maxCandidates }, db, logger) {
       effect_text_en
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-
   const results = [];
-  for (const filePath of filePaths) {
-    const { data } = await worker.recognize(filePath);
-    const passcodes = extractPasscodesFromText(data.text);
-    const nameCandidates = extractNameCandidates(data.words || []);
-    const candidates = passcodes.length > 0 ? passcodes : [null];
 
-    for (const passcode of candidates) {
-      let fetchResult = await fetchCardDetails({
-        passcode: passcode || '',
-        en_name: nameCandidates[0] || '',
+  for (const spokenName of cardNames) {
+    const fetchResult = await fetchCardDetails({
+      passcode: '',
+      en_name: spokenName,
+      de_name: spokenName,
+      userAgent,
+      maxCandidates
+    }).catch((error) => ({ status: CARD_STATUSES.ERROR, error }));
+
+    if (fetchResult.status === CARD_STATUSES.OK_DETAILS) {
+      const detail = fetchResult.cardDetails;
+      const enName = detail.name || spokenName;
+      const incoming = {
         de_name: '',
-        userAgent,
-        maxCandidates
-      }).catch((error) => ({ status: CARD_STATUSES.ERROR, error }));
-
-      if (fetchResult.status !== CARD_STATUSES.OK_DETAILS && nameCandidates.length > 0) {
-        const fallback = await resolveByNameCandidates(nameCandidates, { userAgent, maxCandidates });
-        if (fallback) {
-          fetchResult = fallback;
-        }
-      }
-
-      if (fetchResult.status === CARD_STATUSES.OK_DETAILS) {
-        const detail = fetchResult.cardDetails;
-        const enName = detail.name || fetchResult.nameCandidate || nameCandidates[0] || '';
-        const incoming = {
-          de_name: '',
-          passcode: detail.passcode || passcode || '',
-          en_name: enName,
-          status: CARD_STATUSES.OK_DETAILS,
-          updated_at: now,
-          last_fetched_at: now,
-          data_source: detail.data_source || null,
-          cardcluster_url: detail.cardcluster_url || null,
-          source_url: detail.source_url || null,
-          card_kind: detail.card_kind || null,
-          card_subtypes: detail.card_subtypes || null,
-          attribute: detail.attribute || null,
-          level_or_rank: detail.level_or_rank ?? null,
-          link_rating: detail.link_rating ?? null,
-          race: detail.race || null,
-          atk: detail.atk ?? null,
-          def: detail.def ?? null,
-          pendulum_scale: detail.pendulum_scale ?? null,
-          spell_trap_property: detail.spell_trap_property || null,
-          effect_text_en: detail.effect_text_en || null,
-          error_message: null,
-          raw_url: null
-        };
-        const duplicate = findDuplicate(db, {
-          de_name: incoming.de_name,
-          en_name: incoming.en_name,
-          passcode: incoming.passcode
-        });
-        if (duplicate) {
-          const merged = mergeCards(duplicate, incoming);
-          updateMergedCard(db, merged, duplicate.id);
-        } else {
-          insert.run(
-            incoming.de_name,
-            incoming.passcode,
-            incoming.en_name,
-            incoming.status,
-            now,
-            now,
-            now,
-            incoming.data_source,
-            incoming.cardcluster_url,
-            incoming.source_url,
-            incoming.card_kind,
-            incoming.card_subtypes,
-            incoming.attribute,
-            incoming.level_or_rank,
-            incoming.link_rating,
-            incoming.race,
-            incoming.atk,
-            incoming.def,
-            incoming.pendulum_scale,
-            incoming.spell_trap_property,
-            incoming.effect_text_en
-          );
-        }
-        results.push({ filePath, passcode: detail.passcode || passcode, en_name: enName, status: CARD_STATUSES.OK_DETAILS });
+        passcode: detail.passcode || '',
+        en_name: enName,
+        status: CARD_STATUSES.OK_DETAILS,
+        updated_at: now,
+        last_fetched_at: now,
+        data_source: detail.data_source || null,
+        cardcluster_url: detail.cardcluster_url || null,
+        source_url: detail.source_url || null,
+        card_kind: detail.card_kind || null,
+        card_subtypes: detail.card_subtypes || null,
+        attribute: detail.attribute || null,
+        level_or_rank: detail.level_or_rank ?? null,
+        link_rating: detail.link_rating ?? null,
+        race: detail.race || null,
+        atk: detail.atk ?? null,
+        def: detail.def ?? null,
+        pendulum_scale: detail.pendulum_scale ?? null,
+        spell_trap_property: detail.spell_trap_property || null,
+        effect_text_en: detail.effect_text_en || null,
+        error_message: null,
+        raw_url: null
+      };
+      const duplicate = findDuplicate(db, {
+        de_name: incoming.de_name,
+        en_name: incoming.en_name,
+        passcode: incoming.passcode
+      });
+      if (duplicate) {
+        const merged = mergeCards(duplicate, incoming);
+        updateMergedCard(db, merged, duplicate.id);
       } else {
-        const status = fetchResult.status || CARD_STATUSES.NOT_FOUND;
-        const incoming = {
-          de_name: '',
-          passcode: passcode || '',
-          en_name: nameCandidates[0] || '',
-          status,
-          updated_at: now,
-          last_fetched_at: null,
-          data_source: null,
-          cardcluster_url: null,
-          source_url: null,
-          card_kind: null,
-          card_subtypes: null,
-          attribute: null,
-          level_or_rank: null,
-          link_rating: null,
-          race: null,
-          atk: null,
-          def: null,
-          pendulum_scale: null,
-          spell_trap_property: null,
-          effect_text_en: null,
-          error_message: null,
-          raw_url: null
-        };
-        const duplicate = findDuplicate(db, {
-          de_name: incoming.de_name,
-          en_name: incoming.en_name,
-          passcode: incoming.passcode
-        });
-        if (duplicate) {
-          const merged = mergeCards(duplicate, incoming);
-          updateMergedCard(db, merged, duplicate.id);
-        } else {
-          insert.run(
-            incoming.de_name,
-            incoming.passcode,
-            incoming.en_name,
-            incoming.status,
-            now,
-            now,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null
-          );
-        }
-        if (fetchResult.error) {
-          logger.log(db, 'error', `Scan fetch error for ${filePath}: ${fetchResult.error.message}`);
-        }
-        results.push({ filePath, passcode: passcode || null, en_name: nameCandidates[0] || null, status });
+        insert.run(
+          incoming.de_name,
+          incoming.passcode,
+          incoming.en_name,
+          incoming.status,
+          now,
+          now,
+          now,
+          incoming.data_source,
+          incoming.cardcluster_url,
+          incoming.source_url,
+          incoming.card_kind,
+          incoming.card_subtypes,
+          incoming.attribute,
+          incoming.level_or_rank,
+          incoming.link_rating,
+          incoming.race,
+          incoming.atk,
+          incoming.def,
+          incoming.pendulum_scale,
+          incoming.spell_trap_property,
+          incoming.effect_text_en
+        );
       }
+      results.push({ spoken: spokenName, passcode: detail.passcode || null, en_name: enName, status: CARD_STATUSES.OK_DETAILS });
+    } else {
+      const status = fetchResult.status || CARD_STATUSES.NOT_FOUND;
+      const incoming = {
+        de_name: '',
+        passcode: '',
+        en_name: spokenName,
+        status,
+        updated_at: now,
+        last_fetched_at: null,
+        data_source: null,
+        cardcluster_url: null,
+        source_url: null,
+        card_kind: null,
+        card_subtypes: null,
+        attribute: null,
+        level_or_rank: null,
+        link_rating: null,
+        race: null,
+        atk: null,
+        def: null,
+        pendulum_scale: null,
+        spell_trap_property: null,
+        effect_text_en: null,
+        error_message: null,
+        raw_url: null
+      };
+      const duplicate = findDuplicate(db, {
+        de_name: incoming.de_name,
+        en_name: incoming.en_name,
+        passcode: incoming.passcode
+      });
+      if (duplicate) {
+        const merged = mergeCards(duplicate, incoming);
+        updateMergedCard(db, merged, duplicate.id);
+      } else {
+        insert.run(
+          incoming.de_name,
+          incoming.passcode,
+          incoming.en_name,
+          incoming.status,
+          now,
+          now,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        );
+      }
+      if (fetchResult.error) {
+        logger.log(db, 'error', `Speech fetch error for ${spokenName}: ${fetchResult.error.message}`);
+      }
+      results.push({ spoken: spokenName, passcode: null, en_name: spokenName, status });
     }
   }
 
-  await worker.terminate();
-  return { totalImages: filePaths.length, results };
+  return results;
 }
 
 function updateMergedCard(db, merged, keepId) {

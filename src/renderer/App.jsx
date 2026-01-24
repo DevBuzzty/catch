@@ -39,7 +39,8 @@ function App() {
   const [sortDir, setSortDir] = useState('desc');
   const [scanResults, setScanResults] = useState([]);
   const [scanSummary, setScanSummary] = useState(null);
-  const [scanBusy, setScanBusy] = useState(false);
+  const [speechTranscript, setSpeechTranscript] = useState('');
+  const [speechBusy, setSpeechBusy] = useState(false);
 
   const loadCards = async () => {
     const result = await window.api.listCards({
@@ -340,16 +341,18 @@ function App() {
     setSelectedIds([]);
   };
 
-  const handleScanImages = async () => {
-    setScanBusy(true);
+
+  const handleTranscribeAudio = async () => {
+    setSpeechBusy(true);
     try {
-      const result = await window.api.scanImages();
+      const result = await window.api.transcribeAudio();
       if (result?.canceled) return;
-      setScanSummary({ totalImages: result.totalImages, totalResults: result.results?.length || 0 });
+      setSpeechTranscript(result.transcript || '');
       setScanResults(result.results || []);
+      setScanSummary({ totalImages: 0, totalResults: result.results?.length || 0 });
       await loadCards();
     } finally {
-      setScanBusy(false);
+      setSpeechBusy(false);
     }
   };
 
@@ -834,124 +837,75 @@ function App() {
         {activeMenu === 'scanner' && (
           <section className="panel fade-in">
             <div className="panel__header">
-              <h3>Foto-Scanner</h3>
+              <h3>Sprach-Scanner</h3>
               <div className="panel__actions">
-                <button className="primary" onClick={handleScanImages} disabled={scanBusy}>
-                  {scanBusy ? 'Scanning…' : 'Upload & Scan Images'}
+                <button className="primary" onClick={handleTranscribeAudio} disabled={speechBusy}>
+                  {speechBusy ? 'Transcribing…' : 'Record & Transcribe'}
                 </button>
               </div>
             </div>
             {scanSummary && (
               <div className="scan-summary">
-                <span>Images: {scanSummary.totalImages}</span>
                 <span>Cards added: {scanSummary.totalResults}</span>
               </div>
             )}
-            {scanResults.length > 0 && (
+            {speechTranscript && (
               <div className="scan-results">
-                <h4>Scan Results</h4>
-                <ul>
-                  {scanResults.map((result, index) => (
-                    <li key={`${result.filePath}-${index}`}>
-                      <strong>{result.en_name || 'Unknown'}</strong>
-                      <span>Passcode: {result.passcode || 'n/a'}</span>
-                      <span>Status: {result.status}</span>
-                    </li>
-                  ))}
-                </ul>
+                <h4>Transcript</h4>
+                <p>{speechTranscript}</p>
               </div>
             )}
             <p className="scanner-note">
-              OCR läuft lokal mit einer LSTM-basierten Engine (Tesseract), um Text zuverlässig zu erkennen.
+              Sprach-Transkription läuft über ein KI-Modell (OpenAI Speech-to-Text) und verarbeitet
+              die genannten Kartennamen automatisch.
             </p>
             <div className="algorithm">
               <p>
-                Ziel: Aus hochgeladenen Fotos (eine oder mehrere Karten pro Bild) Kartennamen erkennen,
-                Passcodes online auflösen, englische Namen bestimmen und alles in die Datenbank übernehmen.
+                Ziel: Du sprichst mehrere Kartennamen ein, die KI transkribiert sie, sucht Passcodes und
+                englische Namen online und speichert die Ergebnisse in der Datenbank.
               </p>
               <ol>
                 <li>
-                  <strong>Input & Job-Setup</strong>
+                  <strong>Audio-Input & Transkription</strong>
                   <ul>
-                    <li>Mehrere Bilder gleichzeitig akzeptieren (JPG/PNG/WebP, optional HEIC).</li>
-                    <li>Für jedes Bild einen Job-Eintrag erzeugen: status=PENDING, total=Anzahl Bilder.</li>
-                    <li>In Settings: ocr_language (default: deu+eng), confidence_threshold (default: 0.7).</li>
+                    <li>Audio aufnehmen oder Datei hochladen (z. B. WAV, MP3, M4A).</li>
+                    <li>Transkription via OpenAI Speech-to-Text (de/eng gemischt möglich).</li>
+                    <li>Segmentierung in einzelne Kartennamen (Kommas/Pausen).</li>
                   </ul>
                 </li>
                 <li>
-                  <strong>Vorverarbeitung (pro Bild)</strong>
+                  <strong>Namens-Normalisierung</strong>
                   <ul>
-                    <li>EXIF-Orientierung korrigieren, auf max. 2000px Breite skalieren (Seitenverhältnis behalten).</li>
-                    <li>Kontrast/Schärfe leicht erhöhen, Farbraum zu RGB normalisieren.</li>
-                    <li>Optional: Hintergrund glätten (bilateral filter), um Text besser hervorzuheben.</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>Kartenerkennung (mehrere Karten pro Bild)</strong>
-                  <ul>
-                    <li>Kanten finden (Canny) → Rechteck-Kandidaten via Konturen/Polygonapproximation.</li>
-                    <li>Filter auf Kartenaspekt (Yu-Gi-Oh! ~ 59x86mm; Verhältnis ca. 0.686).</li>
-                    <li>Rechtecke perspektivisch entzerren → einzelne Kartencrops erzeugen.</li>
-                    <li>Fallback: Wenn keine Rechtecke erkannt, das ganze Bild als eine Karte behandeln.</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>OCR-Regionen definieren</strong>
-                  <ul>
-                    <li>Name-Zone: oberer Kartenbalken (Top 12–18% der Kartenhöhe).</li>
-                    <li>Passcode-Zone: unterer Kartenrand rechts (Bottom 8–12%, rechte 35%).</li>
-                    <li>Optional zweite Name-Zone für alternative Layouts (z. B. Rush/Spell/Trap).</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>OCR-Ausführung</strong>
-                  <ul>
-                    <li>OCR für Name-Zone mit Sprachen deu+eng (Tesseract oder vergleichbare Engine).</li>
-                    <li>OCR für Passcode-Zone nur numerisch (Whitelist 0–9, Länge 4–12).</li>
-                    <li>Ergebnisse normalisieren: Trim, Sonderzeichen entfernen, doppelte Leerzeichen glätten.</li>
-                  </ul>
-                </li>
-                <li>
-                  <strong>Kandidaten-Matching</strong>
-                  <ul>
-                    <li>Passcode hat Priorität: wenn erkannt, direkt als Query nutzen.</li>
-                    <li>Falls Passcode fehlt, Name-Kandidaten mit OCR-Confidence filtern.</li>
-                    <li>Fuzzy-Matching (Levenshtein) zwischen OCR-Name und Suchtreffern (Threshold ≥ 0.75).</li>
+                    <li>Trimmen, Sonderzeichen bereinigen, doppelte Leerzeichen entfernen.</li>
+                    <li>Optional: GPT-basiertes Post-Processing für besonders unsaubere Transkripte.</li>
                   </ul>
                 </li>
                 <li>
                   <strong>Online-Suche (sequenziell pro Datenbank)</strong>
                   <ul>
-                    <li><em>Quelle 1: Cardcluster</em> – zuerst immer cardcluster.com durchsuchen.</li>
-                    <li>Suchreihenfolge: Passcode → EN Name → DE Name.</li>
-                    <li>Search HTML scannen, Kandidaten sammeln, bis maxCandidates geprüft.</li>
-                    <li>Detailseite laden, __NEXT_DATA__ parsen, Daten extrahieren.</li>
-                    <li>Wenn kein Treffer: Weiter zur nächsten Quelle.</li>
+                    <li><em>Quelle 1: Cardcluster</em> – Suche per Name, HTML-Scan, Detailseite parsen.</li>
                     <li><em>Quelle 2: YGOPRODeck</em> – HTML-Suche → API-Fallback.</li>
-                    <li>Website-HTML scannen, Kandidaten extrahieren, erst dann API.</li>
-                    <li>Wenn keine Quelle matcht: status=NOT_FOUND setzen.</li>
+                    <li>Falls keine Quelle matcht: status=NOT_FOUND.</li>
                   </ul>
                 </li>
                 <li>
-                  <strong>Validierung & Konsolidierung</strong>
+                  <strong>Validierung</strong>
                   <ul>
-                    <li>Falls Passcode aus Quelle ≠ OCR-Passcode: WARNING_PASSCODE_MISMATCH.</li>
-                    <li>Felder vereinheitlichen: prefer passcode → en_name → de_name → details.</li>
-                    <li>Fehlende Werte aus OCR ergänzen, wenn Quelle leer ist.</li>
+                    <li>Gefundene Passcodes prüfen, englische Namen übernehmen.</li>
+                    <li>Abweichungen loggen und in der Detailansicht korrigierbar machen.</li>
                   </ul>
                 </li>
                 <li>
-                  <strong>Datenbank-Insert/Update</strong>
+                  <strong>Datenbank-Insert</strong>
                   <ul>
-                    <li>Duplikate prüfen: passcode gleich oder en_name/de_name (case-insensitive).</li>
-                    <li>Bei Duplikat: Merge-Logik anwenden oder in Duplicate Center markieren.</li>
-                    <li>Bei neuem Datensatz: status=OK_DETAILS, last_fetched_at setzen.</li>
+                    <li>Duplikate prüfen (passcode/en_name/de_name).</li>
+                    <li>Neue Karten hinzufügen, bestehende via Merge-Logik aktualisieren.</li>
                   </ul>
                 </li>
                 <li>
                   <strong>Job-Status & Logging</strong>
                   <ul>
-                    <li>Pro Karte Fortschritt loggen (OCR → Suche → Detail → Insert).</li>
+                    <li>Pro Karte Fortschritt loggen (Speech → Suche → Detail → Insert).</li>
                     <li>UI zeigt Fortschritt (done/total) und aktuelle Karte.</li>
                     <li>Fehler: error_message speichern, raw_url (falls vorhanden) hinterlegen.</li>
                   </ul>
@@ -959,13 +913,13 @@ function App() {
                 <li>
                   <strong>Qualitätssicherung</strong>
                   <ul>
-                    <li>Konfidenz-Score je Karte speichern (OCR + Matching).</li>
+                    <li>Konfidenz-Score je Karte speichern (Speech + Matching).</li>
                     <li>Unter einem Threshold: status=NEED_INPUT setzen und Review anfordern.</li>
                   </ul>
                 </li>
               </ol>
               <p className="algorithm__note">
-                Hinweis: Die OCR-Engine, Bildsegmentierung und Matching-Parameter sind absichtlich getrennt,
+                Hinweis: Die Speech-to-Text Parameter und das Matching sind absichtlich getrennt,
                 damit du sie im Settings-Tab feinjustieren kannst.
               </p>
             </div>
