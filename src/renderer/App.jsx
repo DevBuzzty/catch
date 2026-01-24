@@ -1128,6 +1128,24 @@ function App() {
                   }
                 />
               </label>
+              <label>
+                openai_base_url
+                <input
+                  value={settings.openai_base_url || ''}
+                  onChange={(event) =>
+                    setSettings({ ...settings, openai_base_url: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                openai_timeout_ms
+                <input
+                  value={settings.openai_timeout_ms || ''}
+                  onChange={(event) =>
+                    setSettings({ ...settings, openai_timeout_ms: event.target.value })
+                  }
+                />
+              </label>
             </div>
           </section>
         )}

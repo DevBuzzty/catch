@@ -132,7 +132,9 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
       if (!apiKey) {
         return { canceled: false, error: 'OPENAI_API_KEY is not set' };
       }
-      const client = new OpenAI({ apiKey });
+      const baseUrl = settings.find((row) => row.key === 'openai_base_url')?.value;
+      const timeoutMs = Number(settings.find((row) => row.key === 'openai_timeout_ms')?.value || 30000);
+      const client = new OpenAI({ apiKey, baseURL: baseUrl || undefined, timeout: timeoutMs });
       const filePath = result.filePaths[0];
       const transcription = await client.audio.transcriptions.create({
         file: fs.createReadStream(filePath),
@@ -146,7 +148,9 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
       const { candidates, duplicates } = await processSpokenCards(cardNames, { userAgent, maxCandidates }, db, logger);
       return { canceled: false, transcript: text, candidates, duplicates };
     } catch (error) {
-      return { canceled: false, error: error?.message || 'Connection error' };
+      const message = formatOpenAiError(error);
+      logger.log(db, 'error', `Speech transcription failed: ${message}`);
+      return { canceled: false, error: message };
     }
   });
 
@@ -600,6 +604,23 @@ function extractSpokenCardNames(transcript) {
     .split(/[,\n;]+/g)
     .map((part) => part.trim())
     .filter((part) => part.length >= 3);
+}
+
+function formatOpenAiError(error) {
+  const rawMessage = String(error?.message || error || 'Connection error');
+  if (rawMessage.toLowerCase().includes('api key')) {
+    return 'OPENAI_API_KEY is not set or invalid.';
+  }
+  if (rawMessage.toLowerCase().includes('timeout')) {
+    return 'OpenAI request timed out. Check your connection and try again.';
+  }
+  if (rawMessage.toLowerCase().includes('enotfound') || rawMessage.toLowerCase().includes('ecconnrefused')) {
+    return 'OpenAI connection failed. Check your internet connection or proxy.';
+  }
+  if (rawMessage.toLowerCase().includes('connection error')) {
+    return 'OpenAI connection error. Check your internet connection.';
+  }
+  return rawMessage;
 }
 
 async function processSpokenCards(cardNames, { userAgent, maxCandidates }, db, logger) {
