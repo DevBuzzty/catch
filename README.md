@@ -77,6 +77,6 @@ den `__NEXT_DATA__` Block von cardcluster.com und speichert das Deck lokal.
 ## Hinweise
 
 - Scraping nutzt mehrere Quellen in fester Reihenfolge: Cardcluster → Yugipedia → Fandom → Wikia → YGOPRODeck.
-- Suchreihenfolge pro Quelle: Passcode → Englisch → Deutsch.
+- Suchreihenfolge pro Quelle: Passcode → Englisch → Deutsch (bei rein deutschen Namen werden deutsche Wiki-Quellen bevorzugt).
 - Passcode-Matching prüft bis zu 5 Kandidaten.
 - Batchverarbeitung läuft standardmäßig in 25er Schritten (Settings anpassbar).

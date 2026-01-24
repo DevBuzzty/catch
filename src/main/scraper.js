@@ -4,8 +4,11 @@ const SEARCH_BASE = 'https://cardcluster.com/cards?q=';
 const YGOPRO_BASE = 'https://db.ygoprodeck.com/api/v7/cardinfo.php';
 const YGOPRO_SEARCH_BASE = 'https://ygoprodeck.com/card-database/';
 const YUGIPEDIA_BASE = 'https://yugipedia.com';
+const YUGIPEDIA_DE_BASE = 'https://de.yugipedia.com';
 const FANDOM_BASE = 'https://yugioh.fandom.com';
+const FANDOM_DE_BASE = 'https://de.yugioh.fandom.com';
 const WIKIA_BASE = 'https://yugioh.wikia.com';
+const WIKIA_DE_BASE = 'https://de.yugioh.wikia.com';
 
 function normalizeString(value) {
   if (!value) return '';
@@ -325,11 +328,32 @@ async function resolveCardclusterUrlForName(query, userAgent, maxCandidates) {
 }
 
 async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCandidates }) {
+  const useGermanSources = Boolean(de_name && !en_name && !passcode);
+  const wikiSources = useGermanSources
+    ? [
+        { baseUrl: YUGIPEDIA_DE_BASE, sourceKey: 'yugipedia_de' },
+        { baseUrl: FANDOM_DE_BASE, sourceKey: 'fandom_de' },
+        { baseUrl: WIKIA_DE_BASE, sourceKey: 'wikia_de' }
+      ]
+    : [
+        { baseUrl: YUGIPEDIA_BASE, sourceKey: 'yugipedia' },
+        { baseUrl: FANDOM_BASE, sourceKey: 'fandom' },
+        { baseUrl: WIKIA_BASE, sourceKey: 'wikia' }
+      ];
+
   const sources = [
     () => fetchFromCardcluster({ passcode, en_name, de_name, userAgent, maxCandidates }),
-    () => fetchFromMediaWiki({ passcode, en_name, de_name, userAgent, maxCandidates, baseUrl: YUGIPEDIA_BASE, sourceKey: 'yugipedia' }),
-    () => fetchFromMediaWiki({ passcode, en_name, de_name, userAgent, maxCandidates, baseUrl: FANDOM_BASE, sourceKey: 'fandom' }),
-    () => fetchFromMediaWiki({ passcode, en_name, de_name, userAgent, maxCandidates, baseUrl: WIKIA_BASE, sourceKey: 'wikia' }),
+    ...wikiSources.map((source) => () =>
+      fetchFromMediaWiki({
+        passcode,
+        en_name,
+        de_name,
+        userAgent,
+        maxCandidates,
+        baseUrl: source.baseUrl,
+        sourceKey: source.sourceKey
+      })
+    ),
     () => fetchFromYgoProDeck({ passcode, en_name, de_name, userAgent, maxCandidates })
   ];
 
