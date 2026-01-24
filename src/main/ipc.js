@@ -282,7 +282,7 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
   ipcMain.handle('cards:previewImport', (_, payload) => {
     const { rows = [] } = payload || {};
     const duplicates = [];
-    const candidates = [];
+    const previewRows = [];
     rows.forEach((row) => {
       const deName = row.de_name || '';
       const enName = row.en_name || '';
@@ -290,16 +290,25 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
       const duplicate = findDuplicate(db, { de_name: deName, en_name: enName, passcode });
       if (duplicate) {
         duplicates.push({ incoming: { de_name: deName, en_name: enName, passcode }, existing: duplicate });
-      } else {
-        candidates.push({
+        previewRows.push({
           de_name: deName,
           en_name: enName,
           passcode,
-          status: CARD_STATUSES.NEED_INPUT
+          status: CARD_STATUSES.SKIP_DETAILS_PRESENT,
+          exists: true,
+          existing_id: duplicate.id
+        });
+      } else {
+        previewRows.push({
+          de_name: deName,
+          en_name: enName,
+          passcode,
+          status: CARD_STATUSES.NEED_INPUT,
+          exists: false
         });
       }
     });
-    return { candidates, duplicates };
+    return { rows: previewRows, duplicates };
   });
 
   ipcMain.handle('cards:fetchPreviewDetails', async (_, payload) => {

@@ -465,6 +465,11 @@ select {
   text-align: left;
 }
 
+.import-table th:first-child,
+.import-table td:first-child {
+  width: 90px;
+}
+
 .import-table input {
   width: 100%;
   background: #0b0f1c;

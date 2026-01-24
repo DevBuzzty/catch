@@ -202,8 +202,9 @@ function App() {
       const rows = parseCsv(fileResult.content || '');
       const result = await window.api.previewImport({ rows });
       setImportDuplicates(result?.duplicates || []);
-      setImportRows(result?.candidates || []);
-      setImportStatus(`Importiert: ${result?.candidates?.length || 0} neu, ${result?.duplicates?.length || 0} doppelt.`);
+      setImportRows(result?.rows || []);
+      const newCount = (result?.rows || []).filter((row) => !row.exists).length;
+      setImportStatus(`Importiert: ${newCount} neu, ${result?.duplicates?.length || 0} doppelt.`);
     });
   };
 
@@ -227,23 +228,36 @@ function App() {
         .map((name) => ({ de_name: name, en_name: '', passcode: '' }));
       const result = await window.api.previewImport({ rows });
       setImportDuplicates(result?.duplicates || []);
-      setImportRows(result?.candidates || []);
-      setImportStatus(`Importiert: ${result?.candidates?.length || 0} neu, ${result?.duplicates?.length || 0} doppelt.`);
+      setImportRows(result?.rows || []);
+      const newCount = (result?.rows || []).filter((row) => !row.exists).length;
+      setImportStatus(`Importiert: ${newCount} neu, ${result?.duplicates?.length || 0} doppelt.`);
     });
   };
 
   const handleImportFetchAll = async () => {
     if (importRows.length === 0) return;
     await runWithBusy('Fetch details (Import)…', async () => {
-      const result = await window.api.fetchPreviewDetails({ rows: importRows });
-      setImportRows(result?.rows || []);
+      const rowsToFetch = importRows
+        .map((row, index) => ({ ...row, __index: index }))
+        .filter((row) => !row.exists);
+      const result = await window.api.fetchPreviewDetails({ rows: rowsToFetch });
+      const updatedRows = [...importRows];
+      (result?.rows || []).forEach((row) => {
+        const index = row.__index;
+        if (typeof index === 'number') {
+          const { __index, ...rest } = row;
+          updatedRows[index] = { ...updatedRows[index], ...rest };
+        }
+      });
+      setImportRows(updatedRows);
     });
   };
 
   const handleAddToDashboard = async () => {
     if (importRows.length === 0) return;
     await runWithBusy('Übertrage ins Dashboard…', async () => {
-      const result = await window.api.addPreviewCards({ rows: importRows });
+      const rowsToAdd = importRows.filter((row) => !row.exists);
+      const result = await window.api.addPreviewCards({ rows: rowsToAdd });
       showDuplicateNotice('Import', result?.duplicates || []);
       setImportRows([]);
       setImportDuplicates([]);
@@ -915,6 +929,7 @@ function App() {
             <table className="import-table">
               <thead>
                 <tr>
+                  <th>In DB</th>
                   <th>DE</th>
                   <th>Passcode</th>
                   <th>EN</th>
@@ -925,21 +940,29 @@ function App() {
                 {importRows.map((row, index) => (
                   <tr key={`${row.passcode || row.en_name || row.de_name}-${index}`}>
                     <td>
+                      <span className={row.exists ? 'status-pill status-pill--OK_DETAILS' : 'status-pill status-pill--NEED_INPUT'}>
+                        {row.exists ? 'Ja' : 'Neu'}
+                      </span>
+                    </td>
+                    <td>
                       <input
                         value={row.de_name || ''}
                         onChange={(event) => handleImportFieldChange(index, 'de_name', event.target.value)}
+                        disabled={row.exists}
                       />
                     </td>
                     <td>
                       <input
                         value={row.passcode || ''}
                         onChange={(event) => handleImportFieldChange(index, 'passcode', event.target.value)}
+                        disabled={row.exists}
                       />
                     </td>
                     <td>
                       <input
                         value={row.en_name || ''}
                         onChange={(event) => handleImportFieldChange(index, 'en_name', event.target.value)}
+                        disabled={row.exists}
                       />
                     </td>
                     <td>{row.status || 'NEED_INPUT'}</td>
