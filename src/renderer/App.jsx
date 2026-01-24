@@ -25,6 +25,7 @@ function App() {
   const [activeCard, setActiveCard] = useState(null);
   const [activeCardDirty, setActiveCardDirty] = useState(false);
   const [logs, setLogs] = useState([]);
+  const [diagnostics, setDiagnostics] = useState('');
   const [job, setJob] = useState(null);
   const [busy, setBusy] = useState(false);
   const [busyMessage, setBusyMessage] = useState('');
@@ -58,6 +59,16 @@ function App() {
   const loadLogs = async () => {
     const result = await window.api.listLogs();
     setLogs(result);
+  };
+
+  const handleCollectDiagnostics = async () => {
+    const report = await window.api.collectDiagnostics();
+    setDiagnostics(report);
+  };
+
+  const handleCopyDiagnostics = async () => {
+    if (!diagnostics) return;
+    await navigator.clipboard.writeText(diagnostics);
   };
 
   const loadSettings = async () => {
@@ -1154,8 +1165,20 @@ function App() {
           <section className="panel fade-in">
             <div className="panel__header">
               <h3>Logs</h3>
-              <button onClick={loadLogs}>Refresh</button>
+              <div className="panel__actions">
+                <button onClick={handleCollectDiagnostics}>Generate diagnostics</button>
+                <button onClick={handleCopyDiagnostics} disabled={!diagnostics}>
+                  Copy diagnostics
+                </button>
+                <button onClick={loadLogs}>Refresh</button>
+              </div>
             </div>
+            {diagnostics && (
+              <div className="diagnostics">
+                <h4>Diagnostics report</h4>
+                <textarea readOnly value={diagnostics} rows={10} />
+              </div>
+            )}
             <div className="log-panel">
               {logs.map((log) => (
                 <div key={log.id}>

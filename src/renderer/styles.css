@@ -558,6 +558,21 @@ select {
   border: 1px solid var(--border);
 }
 
+.diagnostics {
+  margin-bottom: 16px;
+}
+
+.diagnostics textarea {
+  width: 100%;
+  background: #0b0f1c;
+  color: #b8c0d9;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 12px;
+  resize: vertical;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

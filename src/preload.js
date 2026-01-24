@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   listLogs: () => ipcRenderer.invoke('logs:list'),
+  collectDiagnostics: () => ipcRenderer.invoke('diagnostics:collect'),
   scanImages: () => ipcRenderer.invoke('scanner:scanImages'),
   transcribeAudio: () => ipcRenderer.invoke('scanner:transcribeAudio'),
   addTranscribedCards: (payload) => ipcRenderer.invoke('scanner:addTranscribedCards', payload)

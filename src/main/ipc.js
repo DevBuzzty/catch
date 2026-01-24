@@ -1,4 +1,4 @@
-const { dialog } = require('electron');
+const { app, dialog } = require('electron');
 const fs = require('fs');
 const { CARD_STATUSES } = require('../shared/constants');
 const { fetchDeckFromUrl, fetchCardDetails } = require('./scraper');
@@ -596,6 +596,36 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
 
   ipcMain.handle('logs:list', () => {
     return logger.list(db);
+  });
+
+  ipcMain.handle('diagnostics:collect', () => {
+    const settings = db.prepare('SELECT key, value FROM settings').all();
+    const settingsMap = settings.reduce((acc, row) => {
+      acc[row.key] = row.value;
+      return acc;
+    }, {});
+    if (settingsMap.openai_api_key) {
+      const key = settingsMap.openai_api_key;
+      settingsMap.openai_api_key = `${key.slice(0, 3)}…${key.slice(-4)}`;
+    }
+    const logs = logger.list(db, 200);
+    const diagnostics = [
+      `timestamp: ${new Date().toISOString()}`,
+      `app_version: ${app.getVersion()}`,
+      `platform: ${process.platform}`,
+      `arch: ${process.arch}`,
+      `node: ${process.versions.node}`,
+      `electron: ${process.versions.electron}`,
+      `chrome: ${process.versions.chrome}`,
+      `user_data_path: ${app.getPath('userData')}`,
+      '',
+      'settings:',
+      JSON.stringify(settingsMap, null, 2),
+      '',
+      'logs:',
+      ...logs.map((entry) => `[${entry.created_at}] ${entry.level}: ${entry.message}`)
+    ];
+    return diagnostics.join('\n');
   });
 }
 
