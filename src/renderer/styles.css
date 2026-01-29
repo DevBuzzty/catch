@@ -440,6 +440,33 @@ select {
   gap: 16px;
 }
 
+.app__main--single {
+  grid-template-columns: 1fr;
+}
+
+.detail-modal {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.detail-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.detail-modal__image {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.detail-modal__image img {
+  max-width: 260px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
 .table-section table {
   width: 100%;
   border-collapse: collapse;

@@ -16,6 +16,25 @@ const menuItems = [
   { id: 'logs', label: 'Logs' }
 ];
 
+const sortOptions = [
+  { value: 'de_name', label: 'DE Name' },
+  { value: 'en_name', label: 'EN Name' },
+  { value: 'passcode', label: 'Passcode' },
+  { value: 'status', label: 'Status' },
+  { value: 'last_fetched_at', label: 'Last fetched' },
+  { value: 'data_source', label: 'Data source' },
+  { value: 'card_kind', label: 'Card kind' },
+  { value: 'card_subtypes', label: 'Card subtypes' },
+  { value: 'attribute', label: 'Attribute' },
+  { value: 'level_or_rank', label: 'Level/Rank' },
+  { value: 'link_rating', label: 'Link rating' },
+  { value: 'race', label: 'Race' },
+  { value: 'atk', label: 'ATK' },
+  { value: 'def', label: 'DEF' },
+  { value: 'pendulum_scale', label: 'Pendulum scale' },
+  { value: 'spell_trap_property', label: 'Spell/Trap property' }
+];
+
 function App() {
   const [cards, setCards] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -493,6 +512,13 @@ function App() {
                   <option value="NEED_INPUT">NEED_INPUT</option>
                   <option value="WARNING_PASSCODE_MISMATCH">WARNING_PASSCODE_MISMATCH</option>
                 </select>
+                <select value={sortKey} onChange={(event) => setSortKey(event.target.value)}>
+                  {sortOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      Sort: {option.label}
+                    </option>
+                  ))}
+                </select>
                 <label className="checkbox">
                   <input
                     type="checkbox"
@@ -550,7 +576,7 @@ function App() {
               </div>
             )}
 
-            <main className="app__main">
+            <main className="app__main app__main--single">
               <section className="table-section">
                 <table>
                   <thead>
@@ -612,203 +638,6 @@ function App() {
                     ))}
                   </tbody>
                 </table>
-              </section>
-
-              <section className="detail-section">
-                <h2>Detail</h2>
-                {activeCardDetails ? (
-                  <div className="detail-card fade-in">
-                    <label>
-                      DE Name
-                      <input
-                        value={activeCardDetails.de_name || ''}
-                        onChange={(event) => {
-                          setActiveCard({ ...activeCardDetails, de_name: event.target.value });
-                          setActiveCardDirty(true);
-                        }}
-                      />
-                    </label>
-                    <label>
-                      Passcode
-                      <input
-                        value={activeCardDetails.passcode || ''}
-                        onChange={(event) => {
-                          setActiveCard({ ...activeCardDetails, passcode: event.target.value });
-                          setActiveCardDirty(true);
-                        }}
-                      />
-                    </label>
-                    <label>
-                      EN Name
-                      <input
-                        value={activeCardDetails.en_name || ''}
-                        onChange={(event) => {
-                          setActiveCard({ ...activeCardDetails, en_name: event.target.value });
-                          setActiveCardDirty(true);
-                        }}
-                      />
-                    </label>
-
-                    <div className="detail-actions">
-                      <button className="primary" onClick={handleSaveCard}>Save</button>
-                      <button className="ghost" onClick={() => handleDelete(activeCardDetails.id)}>Delete</button>
-                      <button onClick={() => handleFetchSingle(activeCardDetails.id)}>Details neu laden</button>
-                      <button onClick={() => handleClearDetails(activeCardDetails.id)}>Clear details</button>
-                    </div>
-
-                    <div className="detail-fields">
-                      <p>Status: {activeCardDetails.status}</p>
-                      <label>
-                        Source
-                        <input
-                          value={activeCardDetails.data_source || ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, data_source: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Cardcluster URL
-                        <input
-                          value={activeCardDetails.cardcluster_url || ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, cardcluster_url: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Source URL
-                        <input
-                          value={activeCardDetails.source_url || ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, source_url: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Kind
-                        <input
-                          value={activeCardDetails.card_kind || ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, card_kind: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Subtypes
-                        <input
-                          value={activeCardDetails.card_subtypes || ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, card_subtypes: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Attribute
-                        <input
-                          value={activeCardDetails.attribute || ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, attribute: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Level/Rank
-                        <input
-                          type="number"
-                          value={activeCardDetails.level_or_rank ?? ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, level_or_rank: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Link Rating
-                        <input
-                          type="number"
-                          value={activeCardDetails.link_rating ?? ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, link_rating: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Race
-                        <input
-                          value={activeCardDetails.race || ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, race: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        ATK
-                        <input
-                          type="number"
-                          value={activeCardDetails.atk ?? ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, atk: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        DEF
-                        <input
-                          type="number"
-                          value={activeCardDetails.def ?? ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, def: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Pendulum Scale
-                        <input
-                          type="number"
-                          value={activeCardDetails.pendulum_scale ?? ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, pendulum_scale: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Spell/Trap Property
-                        <input
-                          value={activeCardDetails.spell_trap_property || ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, spell_trap_property: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Effect (EN)
-                        <textarea
-                          rows={6}
-                          value={activeCardDetails.effect_text_en || ''}
-                          onChange={(event) => {
-                            setActiveCard({ ...activeCardDetails, effect_text_en: event.target.value });
-                            setActiveCardDirty(true);
-                          }}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                ) : (
-                  <p>Select a card to view details.</p>
-                )}
               </section>
             </main>
           </section>
@@ -1185,6 +1014,210 @@ function App() {
               <button className="primary" onClick={() => setDuplicateNotice(null)}>
                 Verstanden
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {activeCardDetails && (
+        <div className="modal-backdrop">
+          <div className="modal modal--wide detail-modal">
+            <div className="detail-modal__header">
+              <h3>Card Details</h3>
+              <button className="ghost" onClick={() => setActiveCard(null)}>Close</button>
+            </div>
+            {activeCardDetails.source_url && (
+              <div className="detail-modal__image">
+                <img src={activeCardDetails.source_url} alt={activeCardDetails.en_name || activeCardDetails.de_name || 'Card'} />
+              </div>
+            )}
+            <div className="detail-card fade-in">
+              <label>
+                DE Name
+                <input
+                  value={activeCardDetails.de_name || ''}
+                  onChange={(event) => {
+                    setActiveCard({ ...activeCardDetails, de_name: event.target.value });
+                    setActiveCardDirty(true);
+                  }}
+                />
+              </label>
+              <label>
+                Passcode
+                <input
+                  value={activeCardDetails.passcode || ''}
+                  onChange={(event) => {
+                    setActiveCard({ ...activeCardDetails, passcode: event.target.value });
+                    setActiveCardDirty(true);
+                  }}
+                />
+              </label>
+              <label>
+                EN Name
+                <input
+                  value={activeCardDetails.en_name || ''}
+                  onChange={(event) => {
+                    setActiveCard({ ...activeCardDetails, en_name: event.target.value });
+                    setActiveCardDirty(true);
+                  }}
+                />
+              </label>
+
+              <div className="detail-actions">
+                <button className="primary" onClick={handleSaveCard}>Save</button>
+                <button className="ghost" onClick={() => handleDelete(activeCardDetails.id)}>Delete</button>
+                <button onClick={() => handleFetchSingle(activeCardDetails.id)}>Details neu laden</button>
+                <button onClick={() => handleClearDetails(activeCardDetails.id)}>Clear details</button>
+              </div>
+
+              <div className="detail-fields">
+                <p>Status: {activeCardDetails.status}</p>
+                <label>
+                  Source
+                  <input
+                    value={activeCardDetails.data_source || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, data_source: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Cardcluster URL
+                  <input
+                    value={activeCardDetails.cardcluster_url || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, cardcluster_url: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Source URL
+                  <input
+                    value={activeCardDetails.source_url || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, source_url: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Kind
+                  <input
+                    value={activeCardDetails.card_kind || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, card_kind: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Subtypes
+                  <input
+                    value={activeCardDetails.card_subtypes || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, card_subtypes: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Attribute
+                  <input
+                    value={activeCardDetails.attribute || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, attribute: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Level/Rank
+                  <input
+                    type="number"
+                    value={activeCardDetails.level_or_rank ?? ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, level_or_rank: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Link Rating
+                  <input
+                    type="number"
+                    value={activeCardDetails.link_rating ?? ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, link_rating: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Race
+                  <input
+                    value={activeCardDetails.race || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, race: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  ATK
+                  <input
+                    type="number"
+                    value={activeCardDetails.atk ?? ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, atk: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  DEF
+                  <input
+                    type="number"
+                    value={activeCardDetails.def ?? ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, def: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Pendulum Scale
+                  <input
+                    type="number"
+                    value={activeCardDetails.pendulum_scale ?? ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, pendulum_scale: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Spell/Trap Property
+                  <input
+                    value={activeCardDetails.spell_trap_property || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, spell_trap_property: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  Effect (EN)
+                  <textarea
+                    rows={6}
+                    value={activeCardDetails.effect_text_en || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, effect_text_en: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                </label>
+              </div>
             </div>
           </div>
         </div>

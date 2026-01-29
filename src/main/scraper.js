@@ -3,12 +3,8 @@ const cheerio = require('cheerio');
 const SEARCH_BASE = 'https://cardcluster.com/cards?q=';
 const YGOPRO_BASE = 'https://db.ygoprodeck.com/api/v7/cardinfo.php';
 const YGOPRO_SEARCH_BASE = 'https://ygoprodeck.com/card-database/';
-const YUGIPEDIA_BASE = 'https://yugipedia.com';
-const YUGIPEDIA_DE_BASE = 'https://de.yugipedia.com';
 const FANDOM_BASE = 'https://yugioh.fandom.com';
 const FANDOM_DE_BASE = 'https://de.yugioh.fandom.com';
-const WIKIA_BASE = 'https://yugioh.wikia.com';
-const WIKIA_DE_BASE = 'https://de.yugioh.wikia.com';
 
 function normalizeString(value) {
   if (!value) return '';
@@ -329,40 +325,42 @@ async function resolveCardclusterUrlForName(query, userAgent, maxCandidates) {
 
 async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCandidates }) {
   const useGermanSources = Boolean(de_name && !en_name && !passcode);
-  const wikiSources = useGermanSources
-    ? [
-        { baseUrl: YUGIPEDIA_DE_BASE, sourceKey: 'yugipedia_de' },
-        { baseUrl: FANDOM_DE_BASE, sourceKey: 'fandom_de' },
-        { baseUrl: WIKIA_DE_BASE, sourceKey: 'wikia_de' }
-      ]
-    : [
-        { baseUrl: YUGIPEDIA_BASE, sourceKey: 'yugipedia' },
-        { baseUrl: FANDOM_BASE, sourceKey: 'fandom' },
-        { baseUrl: WIKIA_BASE, sourceKey: 'wikia' }
-      ];
+  const fandomSource = useGermanSources
+    ? { baseUrl: FANDOM_DE_BASE, sourceKey: 'fandom_de' }
+    : { baseUrl: FANDOM_BASE, sourceKey: 'fandom' };
 
-  const sources = [
-    () => fetchFromCardcluster({ passcode, en_name, de_name, userAgent, maxCandidates }),
-    ...wikiSources.map((source) => () =>
-      fetchFromMediaWiki({
-        passcode,
-        en_name,
-        de_name,
-        userAgent,
-        maxCandidates,
-        baseUrl: source.baseUrl,
-        sourceKey: source.sourceKey
-      })
-    ),
-    () => fetchFromYgoProDeck({ passcode, en_name, de_name, userAgent, maxCandidates })
+  const fetchers = [
+    { key: 'cardcluster', run: () => fetchFromCardcluster({ passcode, en_name, de_name, userAgent, maxCandidates }) },
+    {
+      key: fandomSource.sourceKey,
+      run: () =>
+        fetchFromMediaWiki({
+          passcode,
+          en_name,
+          de_name,
+          userAgent,
+          maxCandidates,
+          baseUrl: fandomSource.baseUrl,
+          sourceKey: fandomSource.sourceKey
+        })
+    },
+    { key: 'ygoprodeck', run: () => fetchFromYgoProDeck({ passcode, en_name, de_name, userAgent, maxCandidates }) }
   ];
 
   const results = [];
-  for (const fetcher of sources) {
-    const result = await fetcher();
+  for (let index = 0; index < fetchers.length; index += 1) {
+    const fetcher = fetchers[index];
+    const result = await fetcher.run();
     results.push(result);
     if (result.status === 'OK_DETAILS') {
-      return result;
+      if (!hasRequiredDetails(result.cardDetails)) {
+        continue;
+      }
+      const otherFetchers = fetchers.filter((_, idx) => idx !== index).map((entry) => entry.run);
+      const verified = await verifyDetails(result.cardDetails, otherFetchers);
+      if (verified) {
+        return result;
+      }
     }
   }
 
@@ -373,6 +371,41 @@ async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCand
     searchVariant: results.find((result) => result.searchVariant)?.searchVariant || null,
     source: 'none'
   };
+}
+
+function hasRequiredDetails(detail) {
+  if (!detail) return false;
+  const name = detail.name || detail.en_name || '';
+  const passcode = detail.passcode || '';
+  const kind = detail.card_kind || '';
+  const effect = detail.effect_text_en || '';
+  return Boolean(name && passcode && kind && effect);
+}
+
+function isSameCard(primary, secondary) {
+  if (!secondary) return false;
+  if (primary.passcode && secondary.passcode && String(primary.passcode) === String(secondary.passcode)) {
+    return true;
+  }
+  const name = primary.name || primary.en_name || '';
+  const compareName = secondary.name || secondary.en_name || '';
+  return scoreNameMatch(name, compareName) >= 2;
+}
+
+async function verifyDetails(primaryDetail, fetchers) {
+  for (const fetcher of fetchers) {
+    const result = await fetcher();
+    if (result.status !== 'OK_DETAILS') {
+      continue;
+    }
+    if (!hasRequiredDetails(result.cardDetails)) {
+      continue;
+    }
+    if (isSameCard(primaryDetail, result.cardDetails)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function fetchFromCardcluster({ passcode, en_name, de_name, userAgent, maxCandidates }) {
