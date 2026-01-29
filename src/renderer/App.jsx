@@ -622,7 +622,11 @@ function App() {
                           <input
                             type="checkbox"
                             checked={selectedIds.includes(card.id)}
-                            onChange={() => handleSelect(card.id)}
+                            onChange={(event) => {
+                              event.stopPropagation();
+                              handleSelect(card.id);
+                            }}
+                            onClick={(event) => event.stopPropagation()}
                           />
                         </td>
                         <td>{card.de_name}</td>
@@ -1019,8 +1023,8 @@ function App() {
         </div>
       )}
       {activeCardDetails && (
-        <div className="modal-backdrop">
-          <div className="modal modal--wide detail-modal">
+        <div className="modal-backdrop" onClick={() => setActiveCard(null)}>
+          <div className="modal modal--wide detail-modal" onClick={(event) => event.stopPropagation()}>
             <div className="detail-modal__header">
               <h3>Card Details</h3>
               <button className="ghost" onClick={() => setActiveCard(null)}>Close</button>

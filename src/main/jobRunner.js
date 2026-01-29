@@ -82,12 +82,21 @@ class JobRunner {
 
     const now = new Date().toISOString();
     const detail = result.cardDetails;
+    if (!detail) {
+      this.updateCardStatus(card.id, CARD_STATUSES.ERROR, 'No details returned', null);
+      return { status: CARD_STATUSES.ERROR };
+    }
     const passcodeMismatch = detail.passcode && card.passcode && detail.passcode !== card.passcode;
     const newPasscode = card.passcode || detail.passcode || null;
     const dataSource = detail.data_source || null;
     const sourceUrl = detail.source_url || detail.cardcluster_url || null;
 
-    const status = passcodeMismatch ? CARD_STATUSES.WARNING_PASSCODE_MISMATCH : CARD_STATUSES.OK_DETAILS;
+    const baseStatus = result.status === CARD_STATUSES.OK_DETAILS
+      ? CARD_STATUSES.OK_DETAILS
+      : CARD_STATUSES.NEED_INPUT;
+    const status = passcodeMismatch
+      ? CARD_STATUSES.WARNING_PASSCODE_MISMATCH
+      : baseStatus;
     this.db.prepare(`
       UPDATE cards SET
         passcode = ?,

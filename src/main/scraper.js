@@ -348,20 +348,26 @@ async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCand
   ];
 
   const results = [];
+  let lastIncomplete = null;
   for (let index = 0; index < fetchers.length; index += 1) {
     const fetcher = fetchers[index];
     const result = await fetcher.run();
     results.push(result);
     if (result.status === 'OK_DETAILS') {
       if (!hasRequiredDetails(result.cardDetails)) {
+        lastIncomplete = result;
         continue;
       }
-      const otherFetchers = fetchers.filter((_, idx) => idx !== index).map((entry) => entry.run);
-      const verified = await verifyDetails(result.cardDetails, otherFetchers);
+      const verified = await verifyDetails(result.cardDetails, fetchers);
       if (verified) {
         return result;
       }
+      lastIncomplete = result;
     }
+  }
+
+  if (lastIncomplete?.cardDetails) {
+    return { ...lastIncomplete, status: 'PARTIAL_DETAILS' };
   }
 
   return {
@@ -379,7 +385,8 @@ function hasRequiredDetails(detail) {
   const passcode = detail.passcode || '';
   const kind = detail.card_kind || '';
   const effect = detail.effect_text_en || '';
-  return Boolean(name && passcode && kind && effect);
+  const hasStats = detail.atk !== null || detail.def !== null || detail.level_or_rank !== null || detail.link_rating !== null;
+  return Boolean(name && passcode && kind && effect && hasStats);
 }
 
 function isSameCard(primary, secondary) {
@@ -394,7 +401,7 @@ function isSameCard(primary, secondary) {
 
 async function verifyDetails(primaryDetail, fetchers) {
   for (const fetcher of fetchers) {
-    const result = await fetcher();
+    const result = await fetcher.run();
     if (result.status !== 'OK_DETAILS') {
       continue;
     }
