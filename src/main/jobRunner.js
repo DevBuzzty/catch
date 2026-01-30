@@ -93,8 +93,9 @@ class JobRunner {
     const fetchedName = detail.name || '';
     const existingName = card.en_name || card.de_name || '';
     const nameScore = fetchedName && existingName ? scoreNameMatch(fetchedName, existingName) : 0;
-    const nameMismatch = fetchedName && existingName && nameScore < 2;
-    const correctedEnName = nameScore >= 2 && fetchedName ? fetchedName : card.en_name;
+    const nameMismatch = Boolean(existingName) && fetchedName && nameScore < 2;
+    const shouldUpdateName = (!existingName && fetchedName) || (nameScore >= 2 && fetchedName);
+    const correctedEnName = shouldUpdateName && !passcodeMismatch ? fetchedName : card.en_name;
 
     const baseStatus = result.status === CARD_STATUSES.OK_DETAILS && !nameMismatch
       ? CARD_STATUSES.OK_DETAILS

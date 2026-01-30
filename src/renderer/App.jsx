@@ -171,7 +171,7 @@ function App() {
           return;
         }
         const hasName = Boolean(fetchedRow.en_name || fetchedRow.de_name);
-        if (fetchedRow.status !== 'OK_DETAILS' || !fetchedRow.passcode || !hasName) {
+        if (!fetchedRow.passcode || !hasName) {
           setImportStatus('Scan nicht gefunden.');
           return;
         }
@@ -329,9 +329,29 @@ function App() {
     });
   };
 
+  const handleImportCheck = async () => {
+    if (importRows.length === 0) return;
+    await runWithBusy('Prüfe Namen & Passcodes…', async () => {
+      const rowsToFetch = importRows
+        .map((row, index) => ({ ...row, __index: index }))
+        .filter((row) => !row.exists);
+      const result = await window.api.fetchPreviewDetails({ rows: rowsToFetch });
+      const updatedRows = [...importRows];
+      (result?.rows || []).forEach((row) => {
+        const index = row.__index;
+        if (typeof index === 'number') {
+          const { __index, ...rest } = row;
+          updatedRows[index] = { ...updatedRows[index], ...rest };
+        }
+      });
+      setImportRows(updatedRows);
+    });
+  };
+
   const handleValidatePasscodes = async () => {
     await runWithBusy('Prüfe Passcodes…', async () => {
-      const result = await window.api.validatePasscodes({ ids: selectedIds });
+      const ids = selectedIds.length > 0 ? selectedIds : [];
+      const result = await window.api.validatePasscodes({ ids });
       setValidationResults(result?.results || []);
     });
   };
@@ -365,6 +385,19 @@ function App() {
       await loadLastImport();
       await loadCards();
     });
+  };
+
+  const handleApplyImportSuggestions = (index) => {
+    setImportRows((prev) => prev.map((row, idx) => {
+      if (idx !== index) return row;
+      return {
+        ...row,
+        en_name: row.suggested_name || row.en_name,
+        passcode: row.suggested_passcode || row.passcode,
+        name_mismatch: false,
+        passcode_mismatch: false
+      };
+    }));
   };
 
   const handleRemoveImportRow = (index) => {
@@ -621,8 +654,8 @@ function App() {
                   <button onClick={handleFetchSelected} disabled={selectedIds.length === 0}>
                     Fetch selected
                   </button>
-                  <button onClick={handleValidatePasscodes} disabled={selectedIds.length === 0}>
-                    Validate passcodes
+                  <button onClick={handleValidatePasscodes}>
+                    Check passcodes
                   </button>
                 </div>
                 <div className="action-group">
@@ -828,6 +861,9 @@ function App() {
                 <button onClick={handleImportFetchAll} disabled={importRows.length === 0}>
                   Fetch All (Import)
                 </button>
+                <button onClick={handleImportCheck} disabled={importRows.length === 0}>
+                  Check names/passcodes
+                </button>
                 <button className="primary" onClick={handleAddToDashboard} disabled={importRows.length === 0}>
                   Add to Dashboard
                 </button>
@@ -910,6 +946,11 @@ function App() {
                         <button onClick={() => handleAddImportRow(index)} disabled={row.exists}>
                           Add
                         </button>
+                        {(row.suggested_name || row.suggested_passcode) && (
+                          <button onClick={() => handleApplyImportSuggestions(index)}>
+                            Vorschlag übernehmen
+                          </button>
+                        )}
                         <button className="ghost" onClick={() => handleRemoveImportRow(index)}>
                           Löschen
                         </button>

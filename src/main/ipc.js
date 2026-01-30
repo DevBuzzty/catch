@@ -335,7 +335,7 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
         const fetchedName = detail.name || '';
         const nameInput = row.en_name || row.de_name || '';
         const nameScore = fetchedName && nameInput ? scoreNameMatch(fetchedName, nameInput) : 0;
-        const nameMismatch = fetchedName && nameScore < 2;
+        const nameMismatch = Boolean(nameInput) && fetchedName && nameScore < 2;
         const passcodeMismatch = isPasscodeMismatch(detail.passcode, row.passcode);
         updated.push({
           ...row,
@@ -529,8 +529,8 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
       const detail = fetchResult.cardDetails;
       const passcodeMismatch = isPasscodeMismatch(detail.passcode, card.passcode);
       const fetchedName = detail.name || '';
-      const nameScore = fetchedName ? scoreNameMatch(fetchedName, nameInput) : 0;
-      const nameMismatch = fetchedName && nameScore < 2;
+      const nameScore = fetchedName && nameInput ? scoreNameMatch(fetchedName, nameInput) : 0;
+      const nameMismatch = Boolean(nameInput) && fetchedName && nameScore < 2;
       if (passcodeMismatch || nameMismatch) {
         results.push({
           id: card.id,
@@ -1082,6 +1082,7 @@ function findDuplicateDetailed(db, card) {
   const passcode = normalizePasscode(card.passcode);
   const enName = normalizeKey(card.en_name);
   const deName = normalizeKey(card.de_name);
+  const nameKeys = new Set([enName, deName].filter(Boolean));
 
   const matches = db.prepare(`
     SELECT * FROM cards WHERE COALESCE(ignore_duplicates, 0) = 0
@@ -1093,17 +1094,25 @@ function findDuplicateDetailed(db, card) {
     const existingPasscode = normalizePasscode(existing.passcode);
     const existingEn = normalizeKey(existing.en_name);
     const existingDe = normalizeKey(existing.de_name);
+    const existingNames = new Set([existingEn, existingDe].filter(Boolean));
     if (passcode && existingPasscode && passcode === existingPasscode) {
       reasons.push('passcode');
       if (!match) match = existing;
     }
-    if (enName && existingEn && enName === existingEn) {
+    if (enName && existingNames.has(enName)) {
       reasons.push('en_name');
       if (!match) match = existing;
     }
-    if (deName && existingDe && deName === existingDe) {
+    if (deName && existingNames.has(deName)) {
       reasons.push('de_name');
       if (!match) match = existing;
+    }
+    if (!match && nameKeys.size > 0) {
+      const nameMatch = Array.from(nameKeys).some((key) => existingNames.has(key));
+      if (nameMatch) {
+        reasons.push('name');
+        match = existing;
+      }
     }
   });
 
