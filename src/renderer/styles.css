@@ -462,6 +462,17 @@ select {
   align-items: center;
 }
 
+.detail-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.detail-input-row input,
+.detail-input-row textarea {
+  flex: 1;
+}
+
 .detail-modal__image {
   display: flex;
   justify-content: center;
@@ -510,6 +521,12 @@ select {
   border: 1px solid #1f2a3c;
   border-radius: 8px;
   padding: 6px 8px;
+}
+
+.import-row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .sort-button {

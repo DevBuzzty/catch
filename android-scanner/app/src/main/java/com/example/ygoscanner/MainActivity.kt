@@ -3,7 +3,6 @@ package com.example.ygoscanner
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.util.Patterns
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -102,14 +101,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun parseCard(text: String): CardPayload? {
         val passcode = Regex("\\b\\d{4,12}\\b").find(text)?.value ?: ""
-        val lines = text.split("\n").map { it.trim() }.filter { it.length >= 3 }
-        val name = lines.firstOrNull { !it.matches(Regex("\\d+")) } ?: ""
-        if (passcode.isEmpty() && name.isEmpty()) return null
-        return CardPayload(deName = name, enName = name, passcode = passcode)
+        if (passcode.isEmpty()) return null
+        return CardPayload(deName = "", enName = "", passcode = passcode)
     }
 
     private fun sendCard(card: CardPayload) {
-        val key = "${card.passcode}|${card.enName.ifBlank { card.deName }}".trim().lowercase()
+        val key = card.passcode.trim().lowercase()
         if (key.isBlank() || key == lastSentKey) {
             return
         }

@@ -157,20 +157,14 @@ function App() {
   useEffect(() => {
     const handler = (payload) => {
       if (!payload) return;
-      const incoming = {
-        de_name: payload.de_name || '',
-        en_name: payload.en_name || '',
-        passcode: payload.passcode || ''
-      };
-      const scanKey = [incoming.passcode, incoming.en_name || incoming.de_name]
-        .map((value) => String(value || '').trim().toLowerCase())
-        .filter(Boolean)
-        .join('|');
+      const incomingPasscode = String(payload.passcode || '').trim();
+      if (!incomingPasscode) return;
+      const scanKey = incomingPasscode.toLowerCase();
       if (!scanKey || scanKey === lastScanKeyRef.current) {
         return;
       }
       lastScanKeyRef.current = scanKey;
-      window.api.fetchPreviewDetails({ rows: [{ ...incoming, __index: 0 }] }).then((fetchResult) => {
+      window.api.fetchPreviewDetails({ rows: [{ passcode: incomingPasscode, en_name: '', de_name: '', __index: 0 }] }).then((fetchResult) => {
         const fetchedRow = fetchResult?.rows?.[0];
         if (!fetchedRow) {
           setImportStatus('Scan nicht gefunden.');
@@ -183,9 +177,9 @@ function App() {
         }
         window.api.previewImport({
           rows: [{
-            de_name: fetchedRow.de_name || incoming.de_name,
-            en_name: fetchedRow.en_name || incoming.en_name,
-            passcode: fetchedRow.passcode || incoming.passcode
+            de_name: fetchedRow.de_name || '',
+            en_name: fetchedRow.en_name || '',
+            passcode: fetchedRow.passcode || incomingPasscode
           }]
         }).then((result) => {
           const row = result?.rows?.[0];
@@ -342,29 +336,9 @@ function App() {
     });
   };
 
-  const handleCopyDetails = async () => {
-    if (!activeCardDetails) return;
-    const payload = {
-      de_name: activeCardDetails.de_name,
-      en_name: activeCardDetails.en_name,
-      passcode: activeCardDetails.passcode,
-      status: activeCardDetails.status,
-      data_source: activeCardDetails.data_source,
-      cardcluster_url: activeCardDetails.cardcluster_url,
-      source_url: activeCardDetails.source_url,
-      card_kind: activeCardDetails.card_kind,
-      card_subtypes: activeCardDetails.card_subtypes,
-      attribute: activeCardDetails.attribute,
-      level_or_rank: activeCardDetails.level_or_rank,
-      link_rating: activeCardDetails.link_rating,
-      race: activeCardDetails.race,
-      atk: activeCardDetails.atk,
-      def: activeCardDetails.def,
-      pendulum_scale: activeCardDetails.pendulum_scale,
-      spell_trap_property: activeCardDetails.spell_trap_property,
-      effect_text_en: activeCardDetails.effect_text_en
-    };
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+  const handleCopyValue = async (value) => {
+    if (value === null || value === undefined) return;
+    await navigator.clipboard.writeText(String(value));
   };
 
   const handleAddToDashboard = async () => {
@@ -379,6 +353,22 @@ function App() {
       await loadLastImport();
       await loadCards();
     });
+  };
+
+  const handleAddImportRow = async (index) => {
+    const row = importRows[index];
+    if (!row || row.exists) return;
+    await runWithBusy('Übertrage Karte ins Dashboard…', async () => {
+      const result = await window.api.addPreviewCards({ rows: [row] });
+      showDuplicateNotice('Import', result?.duplicates || []);
+      setImportRows((prev) => prev.filter((_, idx) => idx !== index));
+      await loadLastImport();
+      await loadCards();
+    });
+  };
+
+  const handleRemoveImportRow = (index) => {
+    setImportRows((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleFetchMissing = async () => {
@@ -873,6 +863,7 @@ function App() {
                   <th>EN</th>
                   <th>Status</th>
                   <th>Checks</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -913,6 +904,16 @@ function App() {
                         <span className="status-pill status-pill--WARNING_PASSCODE_MISMATCH">Name?</span>
                       )}
                       {!row.passcode_mismatch && !row.name_mismatch && 'OK'}
+                    </td>
+                    <td>
+                      <div className="import-row-actions">
+                        <button onClick={() => handleAddImportRow(index)} disabled={row.exists}>
+                          Add
+                        </button>
+                        <button className="ghost" onClick={() => handleRemoveImportRow(index)}>
+                          Löschen
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1171,7 +1172,6 @@ function App() {
             <div className="detail-modal__header">
               <h3>Card Details</h3>
               <div className="detail-modal__header-actions">
-                <button onClick={handleCopyDetails}>Copy details</button>
                 <button className="ghost" onClick={() => setActiveCard(null)}>Close</button>
               </div>
             </div>
@@ -1183,33 +1183,42 @@ function App() {
             <div className="detail-card fade-in">
               <label>
                 DE Name
-                <input
-                  value={activeCardDetails.de_name || ''}
-                  onChange={(event) => {
-                    setActiveCard({ ...activeCardDetails, de_name: event.target.value });
-                    setActiveCardDirty(true);
-                  }}
-                />
+                <div className="detail-input-row">
+                  <input
+                    value={activeCardDetails.de_name || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, de_name: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                  <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.de_name)}>Copy</button>
+                </div>
               </label>
               <label>
                 Passcode
-                <input
-                  value={activeCardDetails.passcode || ''}
-                  onChange={(event) => {
-                    setActiveCard({ ...activeCardDetails, passcode: event.target.value });
-                    setActiveCardDirty(true);
-                  }}
-                />
+                <div className="detail-input-row">
+                  <input
+                    value={activeCardDetails.passcode || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, passcode: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                  <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.passcode)}>Copy</button>
+                </div>
               </label>
               <label>
                 EN Name
-                <input
-                  value={activeCardDetails.en_name || ''}
-                  onChange={(event) => {
-                    setActiveCard({ ...activeCardDetails, en_name: event.target.value });
-                    setActiveCardDirty(true);
-                  }}
-                />
+                <div className="detail-input-row">
+                  <input
+                    value={activeCardDetails.en_name || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, en_name: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                  <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.en_name)}>Copy</button>
+                </div>
               </label>
 
               <div className="detail-actions">
@@ -1223,149 +1232,191 @@ function App() {
                 <p>Status: {activeCardDetails.status}</p>
                 <label>
                   Source
-                  <input
-                    value={activeCardDetails.data_source || ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, data_source: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.data_source || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, data_source: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.data_source)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Cardcluster URL
-                  <input
-                    value={activeCardDetails.cardcluster_url || ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, cardcluster_url: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.cardcluster_url || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, cardcluster_url: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.cardcluster_url)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Source URL
-                  <input
-                    value={activeCardDetails.source_url || ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, source_url: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.source_url || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, source_url: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.source_url)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Kind
-                  <input
-                    value={activeCardDetails.card_kind || ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, card_kind: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.card_kind || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, card_kind: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.card_kind)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Subtypes
-                  <input
-                    value={activeCardDetails.card_subtypes || ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, card_subtypes: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.card_subtypes || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, card_subtypes: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.card_subtypes)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Attribute
-                  <input
-                    value={activeCardDetails.attribute || ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, attribute: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.attribute || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, attribute: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.attribute)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Level/Rank
-                  <input
-                    type="number"
-                    value={activeCardDetails.level_or_rank ?? ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, level_or_rank: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.level_or_rank ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, level_or_rank: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.level_or_rank)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Link Rating
-                  <input
-                    type="number"
-                    value={activeCardDetails.link_rating ?? ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, link_rating: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.link_rating ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, link_rating: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.link_rating)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Race
-                  <input
-                    value={activeCardDetails.race || ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, race: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.race || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, race: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.race)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   ATK
-                  <input
-                    type="number"
-                    value={activeCardDetails.atk ?? ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, atk: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.atk ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, atk: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.atk)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   DEF
-                  <input
-                    type="number"
-                    value={activeCardDetails.def ?? ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, def: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.def ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, def: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.def)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Pendulum Scale
-                  <input
-                    type="number"
-                    value={activeCardDetails.pendulum_scale ?? ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, pendulum_scale: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.pendulum_scale ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, pendulum_scale: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.pendulum_scale)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Spell/Trap Property
-                  <input
-                    value={activeCardDetails.spell_trap_property || ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, spell_trap_property: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.spell_trap_property || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, spell_trap_property: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.spell_trap_property)}>Copy</button>
+                  </div>
                 </label>
                 <label>
                   Effect (EN)
-                  <textarea
-                    rows={6}
-                    value={activeCardDetails.effect_text_en || ''}
-                    onChange={(event) => {
-                      setActiveCard({ ...activeCardDetails, effect_text_en: event.target.value });
-                      setActiveCardDirty(true);
-                    }}
-                  />
+                  <div className="detail-input-row">
+                    <textarea
+                      rows={6}
+                      value={activeCardDetails.effect_text_en || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, effect_text_en: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.effect_text_en)}>Copy</button>
+                  </div>
                 </label>
               </div>
             </div>
