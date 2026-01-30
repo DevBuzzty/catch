@@ -385,7 +385,12 @@ function hasRequiredDetails(detail) {
   const passcode = detail.passcode || '';
   const kind = detail.card_kind || '';
   const effect = detail.effect_text_en || '';
+  const normalizedKind = String(kind).toLowerCase();
+  const isSpellOrTrap = normalizedKind.includes('spell') || normalizedKind.includes('trap');
   const hasStats = detail.atk !== null || detail.def !== null || detail.level_or_rank !== null || detail.link_rating !== null;
+  if (isSpellOrTrap) {
+    return Boolean(name && passcode && kind && effect);
+  }
   return Boolean(name && passcode && kind && effect && hasStats);
 }
 
