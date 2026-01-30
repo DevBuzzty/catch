@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 const emptyCard = {
   de_name: '',
@@ -65,6 +65,7 @@ function App() {
   const [openAiTestBusy, setOpenAiTestBusy] = useState(false);
   const [validationResults, setValidationResults] = useState([]);
   const [scannerInfo, setScannerInfo] = useState({ port: 8787, ips: [] });
+  const lastScanKeyRef = useRef('');
 
   const loadCards = async () => {
     const result = await window.api.listCards({
@@ -161,14 +162,47 @@ function App() {
         en_name: payload.en_name || '',
         passcode: payload.passcode || ''
       };
-      window.api.previewImport({ rows: [incoming] }).then((result) => {
-        const row = result?.rows?.[0];
-        if (!row) return;
-        setImportRows((prev) => [row, ...prev]);
-        if (row.exists) {
-          setImportDuplicates((prev) => [...prev, ...(result?.duplicates || [])]);
+      const scanKey = [incoming.passcode, incoming.en_name || incoming.de_name]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean)
+        .join('|');
+      if (!scanKey || scanKey === lastScanKeyRef.current) {
+        return;
+      }
+      lastScanKeyRef.current = scanKey;
+      window.api.fetchPreviewDetails({ rows: [{ ...incoming, __index: 0 }] }).then((fetchResult) => {
+        const fetchedRow = fetchResult?.rows?.[0];
+        if (!fetchedRow) {
+          setImportStatus('Scan nicht gefunden.');
+          return;
         }
-        setImportStatus('Scan received from Android.');
+        const hasName = Boolean(fetchedRow.en_name || fetchedRow.de_name);
+        if (fetchedRow.status !== 'OK_DETAILS' || !fetchedRow.passcode || !hasName) {
+          setImportStatus('Scan nicht gefunden.');
+          return;
+        }
+        window.api.previewImport({
+          rows: [{
+            de_name: fetchedRow.de_name || incoming.de_name,
+            en_name: fetchedRow.en_name || incoming.en_name,
+            passcode: fetchedRow.passcode || incoming.passcode
+          }]
+        }).then((result) => {
+          const row = result?.rows?.[0];
+          if (!row) return;
+          const mergedRow = {
+            ...row,
+            ...fetchedRow,
+            exists: row.exists,
+            existing_id: row.existing_id,
+            status: row.exists ? row.status : fetchedRow.status
+          };
+          setImportRows((prev) => [mergedRow, ...prev]);
+          if (row.exists) {
+            setImportDuplicates((prev) => [...prev, ...(result?.duplicates || [])]);
+          }
+          setImportStatus('Scan received from Android.');
+        });
       });
     };
     window.api.onScanIncoming(handler);

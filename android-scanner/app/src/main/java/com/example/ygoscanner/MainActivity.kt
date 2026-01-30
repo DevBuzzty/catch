@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private var webSocket: WebSocket? = null
+    private var lastSentKey: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,6 +109,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendCard(card: CardPayload) {
+        val key = "${card.passcode}|${card.enName.ifBlank { card.deName }}".trim().lowercase()
+        if (key.isBlank() || key == lastSentKey) {
+            return
+        }
+        lastSentKey = key
         val obj = JSONObject()
         obj.put("type", "scan")
         obj.put("card", JSONObject().apply {
