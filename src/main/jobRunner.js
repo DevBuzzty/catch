@@ -86,7 +86,7 @@ class JobRunner {
       this.updateCardStatus(card.id, CARD_STATUSES.ERROR, 'No details returned', null);
       return { status: CARD_STATUSES.ERROR };
     }
-    const passcodeMismatch = detail.passcode && card.passcode && detail.passcode !== card.passcode;
+    const passcodeMismatch = isPasscodeMismatch(detail.passcode, card.passcode);
     const newPasscode = card.passcode || detail.passcode || null;
     const dataSource = detail.data_source || null;
     const sourceUrl = detail.source_url || detail.cardcluster_url || null;
@@ -242,6 +242,16 @@ class JobRunner {
   cancelJob(jobId) {
     this.updateJob(jobId, { status: JOB_STATUSES.CANCELED });
   }
+}
+
+function normalizePasscode(value) {
+  if (!value) return '';
+  return String(value).trim().replace(/^0+/, '');
+}
+
+function isPasscodeMismatch(fetched, existing) {
+  if (!fetched || !existing) return false;
+  return normalizePasscode(fetched) !== normalizePasscode(existing);
 }
 
 module.exports = {
