@@ -341,6 +341,7 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
           ...row,
           passcode: row.passcode || detail.passcode || '',
           en_name: nameScore >= 2 ? fetchedName || row.en_name : row.en_name || fetchedName,
+          de_name: row.de_name || detail.de_name || '',
           status: nameMismatch || passcodeMismatch ? CARD_STATUSES.NEED_INPUT : CARD_STATUSES.OK_DETAILS,
           last_fetched_at: new Date().toISOString(),
           data_source: detail.data_source || null,

@@ -177,6 +177,7 @@ function mapCardDetails(cardObj) {
     data_source: cardObj.data_source || null,
     source_url: cardObj.source_url || null,
     name: cardObj.name || null,
+    de_name: cardObj.de_name || cardObj.name_de || null,
     cardcluster_url: cardObj.url || null,
     card_kind: kind || null,
     card_subtypes: subtypes || null,
@@ -324,15 +325,10 @@ async function resolveCardclusterUrlForName(query, userAgent, maxCandidates) {
 }
 
 async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCandidates }) {
-  const useGermanSources = Boolean(de_name && !en_name && !passcode);
-  const fandomSource = useGermanSources
-    ? { baseUrl: FANDOM_DE_BASE, sourceKey: 'fandom_de' }
-    : { baseUrl: FANDOM_BASE, sourceKey: 'fandom' };
-
   const fetchers = [
     { key: 'cardcluster', run: () => fetchFromCardcluster({ passcode, en_name, de_name, userAgent, maxCandidates }) },
     {
-      key: fandomSource.sourceKey,
+      key: 'fandom',
       run: () =>
         fetchFromMediaWiki({
           passcode,
@@ -340,8 +336,21 @@ async function fetchCardDetails({ passcode, en_name, de_name, userAgent, maxCand
           de_name,
           userAgent,
           maxCandidates,
-          baseUrl: fandomSource.baseUrl,
-          sourceKey: fandomSource.sourceKey
+          baseUrl: FANDOM_BASE,
+          sourceKey: 'fandom'
+        })
+    },
+    {
+      key: 'fandom_de',
+      run: () =>
+        fetchFromMediaWiki({
+          passcode,
+          en_name,
+          de_name,
+          userAgent,
+          maxCandidates,
+          baseUrl: FANDOM_DE_BASE,
+          sourceKey: 'fandom_de'
         })
     },
     { key: 'ygoprodeck', run: () => fetchFromYgoProDeck({ passcode, en_name, de_name, userAgent, maxCandidates }) }
@@ -564,6 +573,7 @@ function mapYgoProCard(cardObj) {
     data_source: 'ygoprodeck',
     source_url: cardObj.card_images?.[0]?.image_url || null,
     name: cardObj.name || null,
+    de_name: null,
     cardcluster_url: null,
     card_kind: kind || null,
     card_subtypes: subtypes || null,
@@ -674,6 +684,7 @@ function mapMediaWikiCard(cardObj, cardUrl, sourceKey) {
     data_source: sourceKey,
     source_url: cardUrl,
     name: cardObj.name || null,
+    de_name: sourceKey.endsWith('_de') ? (cardObj.name || null) : null,
     cardcluster_url: null,
     card_kind: cardObj.card_kind || null,
     card_subtypes: cardObj.card_subtypes || null,
