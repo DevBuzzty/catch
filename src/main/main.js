@@ -5,6 +5,8 @@ const { registerIpcHandlers } = require('./ipc');
 const { initLogger } = require('./logger');
 const { JobRunner } = require('./jobRunner');
 const { getLocalIps, startScannerServer } = require('./scannerServer');
+const { fetchCardDetails } = require('./scraper');
+const { CARD_STATUSES } = require('../shared/constants');
 
 const isDev = !app.isPackaged;
 
@@ -38,11 +40,48 @@ app.whenReady().then(() => {
   const logger = initLogger(app.getPath('userData'));
   jobRunner = new JobRunner(db, logger);
   registerIpcHandlers(ipcMain, db, jobRunner, logger);
+  const settings = db.prepare('SELECT key, value FROM settings').all();
+  const userAgent = settings.find((row) => row.key === 'user_agent')?.value || 'YGO-Card-Manager/0.1';
+  const maxCandidates = Number(settings.find((row) => row.key === 'max_candidates_passcode_match')?.value || 5);
   scannerServer = startScannerServer({
     port: 8787,
-    onScan: (card) => {
+    onScan: async (card, socket) => {
       if (!mainWindow) return;
       mainWindow.webContents.send('scanner:incoming', card);
+      if (!card?.passcode) return;
+      const fetchResult = await fetchCardDetails({
+        passcode: card.passcode,
+        en_name: '',
+        de_name: '',
+        userAgent,
+        maxCandidates
+      }).catch(() => null);
+      if (!fetchResult || fetchResult.status !== CARD_STATUSES.OK_DETAILS || !fetchResult.cardDetails) {
+        return;
+      }
+      const detail = fetchResult.cardDetails;
+      const response = {
+        type: 'scanResult',
+        card: {
+          passcode: detail.passcode || card.passcode || '',
+          en_name: detail.name || detail.en_name || '',
+          de_name: detail.de_name || ''
+        }
+      };
+      if (socket?.readyState === 1) {
+        socket.send(JSON.stringify(response));
+      }
+    },
+    onSync: (socket) => {
+      const cards = db.prepare(`
+        SELECT id, de_name, en_name, passcode, source_url, cardcluster_url
+        FROM cards
+        ORDER BY id ASC
+      `).all();
+      const response = { type: 'sync', cards };
+      if (socket?.readyState === 1) {
+        socket.send(JSON.stringify(response));
+      }
     }
   });
   createWindow();

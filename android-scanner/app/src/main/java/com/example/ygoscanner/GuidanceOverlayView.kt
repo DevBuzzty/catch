@@ -6,6 +6,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import android.animation.ValueAnimator
+import android.view.animation.LinearInterpolator
 
 class GuidanceOverlayView @JvmOverloads constructor(
     context: Context,
@@ -28,6 +30,22 @@ class GuidanceOverlayView @JvmOverloads constructor(
         textSize = 32f
     }
 
+    private var pulseAlpha = 1f
+
+    init {
+        val animator = ValueAnimator.ofFloat(0.3f, 1f).apply {
+            duration = 1200
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener {
+                pulseAlpha = it.animatedValue as Float
+                invalidate()
+            }
+        }
+        animator.start()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val margin = width * 0.08f
@@ -46,7 +64,7 @@ class GuidanceOverlayView @JvmOverloads constructor(
         canvas.drawLine(frame.right - cornerSize, frame.bottom, frame.right, frame.bottom, cornerPaint)
         canvas.drawLine(frame.right, frame.bottom - cornerSize, frame.right, frame.bottom, cornerPaint)
 
-        val hint = "Align card inside the frame.\nPasscode must be visible (bottom-right)."
+        val hint = "Align card inside the frame.\nPasscode must be visible (bottom-left)."
         val lines = hint.split("\n")
         var y = frame.top - 24f
         lines.forEach { line ->
@@ -55,11 +73,12 @@ class GuidanceOverlayView @JvmOverloads constructor(
         }
 
         val passcodeBox = RectF(
-            frame.right - frame.width() * 0.45f,
+            frame.left + frame.width() * 0.08f,
             frame.bottom - frame.height() * 0.28f,
-            frame.right - frame.width() * 0.08f,
+            frame.left + frame.width() * 0.45f,
             frame.bottom - frame.height() * 0.06f
         )
+        cornerPaint.alpha = (pulseAlpha * 255).toInt().coerceIn(80, 255)
         canvas.drawRect(passcodeBox, cornerPaint)
     }
 }

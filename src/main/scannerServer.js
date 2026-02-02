@@ -12,14 +12,17 @@ function getLocalIps() {
   return results;
 }
 
-function startScannerServer({ port, onScan }) {
+function startScannerServer({ port, onScan, onSync }) {
   const server = new WebSocket.Server({ port });
   server.on('connection', (socket) => {
     socket.on('message', (raw) => {
       try {
         const payload = JSON.parse(raw.toString());
         if (payload?.type === 'scan' && payload?.card) {
-          onScan(payload.card);
+          onScan(payload.card, socket);
+        }
+        if (payload?.type === 'sync') {
+          onSync?.(socket);
         }
       } catch (error) {
         // ignore malformed payloads
