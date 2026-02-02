@@ -33,6 +33,9 @@ class MainActivity : AppCompatActivity() {
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private var webSocket: WebSocket? = null
     private var lastSentKey: String? = null
+    private var lastAnalysisAt = 0L
+    private var candidatePasscode: String? = null
+    private var candidateHits = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,7 +63,11 @@ class MainActivity : AppCompatActivity() {
         val wsUrl = "ws://$target"
         val client = OkHttpClient()
         val request = Request.Builder().url(wsUrl).build()
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {})
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
+                statusText.post { statusText.text = "Status: Verbindung fehlgeschlagen" }
+            }
+        })
         statusText.text = "Status: verbunden ($wsUrl)"
         startCamera()
     }
@@ -72,17 +79,30 @@ class MainActivity : AppCompatActivity() {
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
-            val analysis = ImageAnalysis.Builder().build().also { imageAnalysis ->
+            val analysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+                .also { imageAnalysis ->
                 imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
+                    val now = System.currentTimeMillis()
+                    if (now - lastAnalysisAt < 700) {
+                        imageProxy.close()
+                        return@setAnalyzer
+                    }
+                    lastAnalysisAt = now
                     val mediaImage = imageProxy.image
                     if (mediaImage != null) {
                         val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                         recognizer.process(image)
                             .addOnSuccessListener { visionText ->
-                                val payload = parseCard(visionText.text)
-                                if (payload != null) {
-                                    sendCard(payload)
-                                    statusText.post { statusText.text = "Status: Scan erfolgreich" }
+                                val passcode = extractPasscode(visionText, imageProxy.width, imageProxy.height)
+                                if (passcode != null) {
+                                    trackCandidate(passcode)?.let { confirmed ->
+                                        sendCard(CardPayload(deName = "", enName = "", passcode = confirmed))
+                                        statusText.post { statusText.text = "Status: Passcode erkannt ($confirmed)" }
+                                    }
+                                } else {
+                                    statusText.post { statusText.text = "Status: Suche Passcode…" }
                                 }
                             }
                             .addOnCompleteListener {
@@ -99,10 +119,51 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun parseCard(text: String): CardPayload? {
-        val passcode = Regex("\\b\\d{4,12}\\b").find(text)?.value ?: ""
-        if (passcode.isEmpty()) return null
-        return CardPayload(deName = "", enName = "", passcode = passcode)
+    private fun extractPasscode(visionText: com.google.mlkit.vision.text.Text, width: Int, height: Int): String? {
+        val regionLeft = (width * 0.45f).toInt()
+        val regionTop = (height * 0.6f).toInt()
+        val regionRight = width
+        val regionBottom = height
+        val regex = Regex("\\b\\d{8}\\b")
+
+        val candidates = mutableListOf<String>()
+        for (block in visionText.textBlocks) {
+            val box = block.boundingBox ?: continue
+            val inRegion = box.centerX() >= regionLeft && box.centerY() >= regionTop
+            val digits = regex.find(block.text)?.value
+            if (digits != null && inRegion) {
+                candidates.add(digits)
+            }
+        }
+        if (candidates.isNotEmpty()) {
+            return candidates.first()
+        }
+
+        for (block in visionText.textBlocks) {
+            for (line in block.lines) {
+                val lineDigits = regex.find(line.text)?.value
+                if (lineDigits != null) return lineDigits
+                val cleaned = line.text.filter { it.isDigit() }
+                if (cleaned.length == 8) return cleaned
+            }
+        }
+        return null
+    }
+
+    private fun trackCandidate(passcode: String): String? {
+        if (passcode != candidatePasscode) {
+            candidatePasscode = passcode
+            candidateHits = 1
+            return null
+        }
+        candidateHits += 1
+        return if (candidateHits >= 2) {
+            candidatePasscode = null
+            candidateHits = 0
+            passcode
+        } else {
+            null
+        }
     }
 
     private fun sendCard(card: CardPayload) {
