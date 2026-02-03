@@ -15,14 +15,12 @@ import androidx.camera.core.Camera
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.WebSocket
@@ -54,12 +52,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var torchButton: Button
 
     private val cameraExecutor = Executors.newSingleThreadExecutor()
-    private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private var webSocket: WebSocket? = null
-    private var lastSentKey: String? = null
     private var lastAnalysisAt = 0L
-    private var candidatePasscode: String? = null
-    private var candidateHits = 0
+    private var cardPresenceHits = 0
     private val libraryItems = mutableListOf<CardRecord>()
     private lateinit var libraryAdapter: CardAdapter
     private var torchEnabled = false
@@ -67,7 +62,6 @@ class MainActivity : AppCompatActivity() {
     private var imageCapture: ImageCapture? = null
     private var lastCaptureAt = 0L
     private var isCapturing = false
-    private var lastCaptureKey: String? = null
     private val captureCooldownMs = 2500L
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,7 +100,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         scanButton.setOnClickListener {
-            statusText.text = "Status: Automatischer Scan aktiv"
+            statusText.text = "Status: Automatischer Scan aktiv (Karte im Rahmen)"
         }
 
         torchButton.setOnClickListener {
@@ -170,31 +164,22 @@ class MainActivity : AppCompatActivity() {
                         lastAnalysisAt = now
                         val mediaImage = imageProxy.image
                         if (mediaImage != null) {
-                            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                            recognizer.process(image)
-                                .addOnSuccessListener { visionText ->
-                                val passcode = extractPasscode(visionText, imageProxy.width, imageProxy.height)
-                                val nameCandidate = extractName(visionText, imageProxy.width, imageProxy.height)
-                                if (passcode != null) {
-                                    val confirmed = trackCandidate(passcode)
-                                    if (confirmed != null) {
-                                        if (!nameCandidate.isNullOrBlank()) {
-                                            captureCardImage(confirmed, nameCandidate)
-                                            statusText.post { statusText.text = "Status: Karte erkannt ($confirmed)" }
-                                        } else {
-                                            statusText.post { statusText.text = "Status: Passcode erkannt, suche Name…" }
-                                        }
-                                    } else {
-                                        statusText.post { statusText.text = "Status: Passcode erkannt ($passcode)" }
-                                    }
+                            val cardPresent = detectCardPresence(imageProxy)
+                            if (cardPresent) {
+                                cardPresenceHits += 1
+                                if (cardPresenceHits >= 2) {
+                                    captureCardImage()
+                                    statusText.post { statusText.text = "Status: Karte erkannt, Foto wird gemacht…" }
+                                    cardPresenceHits = 0
                                 } else {
-                                    statusText.post { statusText.text = "Status: Suche Passcode…" }
+                                    statusText.post { statusText.text = "Status: Karte erkannt, stabilisieren…" }
                                 }
-                                }
-                                .addOnCompleteListener { imageProxy.close() }
-                        } else {
-                            imageProxy.close()
+                            } else {
+                                cardPresenceHits = 0
+                                statusText.post { statusText.text = "Status: Suche Karte im Rahmen…" }
+                            }
                         }
+                        imageProxy.close()
                     }
                 }
 
@@ -204,74 +189,53 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun extractPasscode(visionText: com.google.mlkit.vision.text.Text, width: Int, height: Int): String? {
-        val regionTop = (height * 0.58f).toInt()
-        val regionRight = (width * 0.6f).toInt()
-        val regex = Regex("\\b\\d{8}\\b")
+    private fun detectCardPresence(imageProxy: ImageProxy): Boolean {
+        val plane = imageProxy.planes.firstOrNull() ?: return false
+        val buffer = plane.buffer
+        val rowStride = plane.rowStride
+        val pixelStride = plane.pixelStride
+        val width = imageProxy.width
+        val height = imageProxy.height
+        val data = ByteArray(buffer.remaining())
+        buffer.get(data)
 
-        visionText.textBlocks.forEach { block ->
-            val box = block.boundingBox ?: return@forEach
-            val inRegion = box.centerX() <= regionRight && box.centerY() >= regionTop
-            val digits = regex.find(block.text)?.value
-            if (digits != null && inRegion) {
-                return digits
+        val left = (width * 0.15f).toInt()
+        val right = (width * 0.85f).toInt()
+        val top = (height * 0.15f).toInt()
+        val bottom = (height * 0.85f).toInt()
+        val stepX = ((right - left) / 18).coerceAtLeast(1)
+        val stepY = ((bottom - top) / 18).coerceAtLeast(1)
+
+        var diffSum = 0L
+        var count = 0L
+        var y = top
+        while (y < bottom - stepY) {
+            var x = left
+            while (x < right - stepX) {
+                val index = y * rowStride + x * pixelStride
+                val indexRight = y * rowStride + (x + stepX) * pixelStride
+                val indexDown = (y + stepY) * rowStride + x * pixelStride
+                val current = data.getOrNull(index)?.toInt()?.and(0xFF) ?: 0
+                val rightValue = data.getOrNull(indexRight)?.toInt()?.and(0xFF) ?: current
+                val downValue = data.getOrNull(indexDown)?.toInt()?.and(0xFF) ?: current
+                diffSum += kotlin.math.abs(current - rightValue) + kotlin.math.abs(current - downValue)
+                count += 2
+                x += stepX
             }
+            y += stepY
         }
 
-        visionText.textBlocks.forEach { block ->
-            block.lines.forEach { line ->
-                val box = line.boundingBox ?: return@forEach
-                val inRegion = box.centerX() <= regionRight && box.centerY() >= regionTop
-                if (!inRegion) return@forEach
-                val lineDigits = regex.find(line.text)?.value
-                if (lineDigits != null) return lineDigits
-            }
-        }
-        return null
+        if (count == 0L) return false
+        val avgDiff = diffSum / count.toFloat()
+        return avgDiff > 12f
     }
 
-    private fun extractName(visionText: com.google.mlkit.vision.text.Text, width: Int, height: Int): String? {
-        val regionBottom = (height * 0.3f).toInt()
-        var best: String? = null
-        visionText.textBlocks.forEach { block ->
-            val box = block.boundingBox ?: return@forEach
-            if (box.centerY() > regionBottom) return@forEach
-            block.lines.forEach { line ->
-                val text = line.text.trim()
-                if (text.length < 4) return@forEach
-                if (text.any { it.isDigit() }) return@forEach
-                if (best == null || text.length > best!!.length) {
-                    best = text
-                }
-            }
-        }
-        return best
-    }
-
-    private fun trackCandidate(passcode: String): String? {
-        if (passcode != candidatePasscode) {
-            candidatePasscode = passcode
-            candidateHits = 1
-            return null
-        }
-        candidateHits += 1
-        return if (candidateHits >= 2) {
-            candidatePasscode = null
-            candidateHits = 0
-            passcode
-        } else {
-            null
-        }
-    }
-
-    private fun captureCardImage(passcode: String, nameCandidate: String?) {
+    private fun captureCardImage() {
         val capture = imageCapture ?: return
         val now = System.currentTimeMillis()
         if (isCapturing || now - lastCaptureAt < captureCooldownMs) return
-        if (passcode == lastCaptureKey) return
         isCapturing = true
         lastCaptureAt = now
-        lastCaptureKey = passcode
         statusText.post { statusText.text = "Status: Foto wird gesendet…" }
 
         val photoFile = File(cacheDir, "scan_$now.jpg")
@@ -284,7 +248,7 @@ class MainActivity : AppCompatActivity() {
                     try {
                         val bytes = photoFile.readBytes()
                         val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                        sendScanImage(base64, passcode, nameCandidate)
+                        sendScanImage(base64)
                     } catch (_: Exception) {
                         statusText.post { statusText.text = "Status: Bild konnte nicht gesendet werden" }
                     } finally {
@@ -301,17 +265,10 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun sendScanImage(base64: String, passcode: String, nameCandidate: String?) {
-        val key = passcode.trim().lowercase()
-        if (key.isBlank() || key == lastSentKey) return
-        lastSentKey = key
+    private fun sendScanImage(base64: String) {
         val obj = JSONObject()
         obj.put("type", "scanImage")
         obj.put("image", base64)
-        obj.put("metadata", JSONObject().apply {
-            put("passcode_hint", passcode)
-            put("name_hint", nameCandidate ?: "")
-        })
         webSocket?.send(obj.toString())
     }
 

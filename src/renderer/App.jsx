@@ -223,6 +223,15 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const handler = (payload) => {
+      if (payload?.message) {
+        setImportStatus(payload.message);
+      }
+    };
+    window.api.onScannerAnalysis(handler);
+  }, []);
+
+  useEffect(() => {
     let timer;
     const refresh = async () => {
       setPortfolioRefreshing(true);

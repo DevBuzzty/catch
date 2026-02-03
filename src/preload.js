@@ -44,5 +44,6 @@ contextBridge.exposeInMainWorld('api', {
   refreshPortfolio: () => ipcRenderer.invoke('portfolio:refresh'),
   getPortfolio: () => ipcRenderer.invoke('portfolio:get'),
   onScanIncoming: (handler) => ipcRenderer.on('scanner:incoming', (_, payload) => handler(payload)),
-  onScannerStatus: (handler) => ipcRenderer.on('scanner:status', (_, payload) => handler(payload))
+  onScannerStatus: (handler) => ipcRenderer.on('scanner:status', (_, payload) => handler(payload)),
+  onScannerAnalysis: (handler) => ipcRenderer.on('scanner:analysis', (_, payload) => handler(payload))
 });

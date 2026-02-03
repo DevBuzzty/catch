@@ -75,20 +75,42 @@ function pickName(lines, width, height) {
 
 async function analyzeCardImage(imageBuffer) {
   const worker = await getWorker();
-  const result = await worker.recognize(imageBuffer);
-  const data = result?.data || {};
-  const lines = Array.isArray(data.lines) ? data.lines : [];
+  let result = await worker.recognize(imageBuffer);
+  let data = result?.data || {};
+  let lines = Array.isArray(data.lines) ? data.lines : [];
   const bounds = buildBounds(lines);
   const width = data.imageSize?.width || bounds.maxX || 1;
   const height = data.imageSize?.height || bounds.maxY || 1;
 
-  const passcode = pickPasscode(lines, width, height) || extractPasscode(data.text || '');
-  const name = pickName(lines, width, height);
+  let passcode = pickPasscode(lines, width, height) || extractPasscode(data.text || '');
+  let name = pickName(lines, width, height);
+  let rawText = normalizeText(data.text || '');
+
+  if (!passcode) {
+    await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
+    result = await worker.recognize(imageBuffer);
+    data = result?.data || {};
+    passcode = extractPasscode(data.text || '') || passcode;
+    rawText = rawText || normalizeText(data.text || '');
+  }
+
+  if (!name) {
+    await worker.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-' " });
+    result = await worker.recognize(imageBuffer);
+    data = result?.data || {};
+    lines = Array.isArray(data.lines) ? data.lines : [];
+    name = pickName(lines, width, height) || name;
+    rawText = rawText || normalizeText(data.text || '');
+  }
+
+  await worker.setParameters({
+    tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-' "
+  });
 
   return {
     passcode: passcode || null,
     name: name || null,
-    rawText: normalizeText(data.text || '')
+    rawText
   };
 }
 

@@ -125,23 +125,28 @@ app.whenReady().then(() => {
     },
     onImage: async (payload, socket) => {
       if (!mainWindow) return;
+      const sendStatus = (message) => {
+        if (mainWindow) {
+          mainWindow.webContents.send('scanner:analysis', { message });
+        }
+      };
       if (socket?.readyState === 1) {
         socket.send(JSON.stringify({ type: 'scanAck', ok: true }));
       }
       const base64 = String(payload?.image || '');
       if (!base64) return;
       try {
-        const metadata = payload?.metadata || {};
-        const hintPasscode = String(metadata?.passcode_hint || '').trim();
-        const hintName = String(metadata?.name_hint || '').trim();
+        sendStatus('Bild empfangen. OCR wird gestartet…');
         const buffer = Buffer.from(base64, 'base64');
         const result = await analyzeCardImage(buffer);
-        const passcode = String(result?.passcode || hintPasscode || '').trim();
-        const name = String(result?.name || hintName || '').trim();
+        const passcode = String(result?.passcode || '').trim();
+        const name = String(result?.name || '').trim();
         if (!passcode && !name) {
+          sendStatus('OCR fertig. Keine Karte erkannt.');
           mainWindow.webContents.send('scanner:incoming', { passcode: '', en_name: '', de_name: '', rawText: result?.rawText || '' });
           return;
         }
+        sendStatus(`OCR fertig. Passcode: ${passcode || '—'} · Name: ${name || '—'}`);
         mainWindow.webContents.send('scanner:incoming', {
           passcode,
           en_name: name,
@@ -149,6 +154,7 @@ app.whenReady().then(() => {
           rawText: result?.rawText || ''
         });
         if (!passcode && !name) return;
+        sendStatus('Suche Kartendetails in den Quellen…');
         const fetchResult = await fetchCardDetails({
           passcode,
           en_name: name,
@@ -157,11 +163,13 @@ app.whenReady().then(() => {
           maxCandidates
         }).catch(() => null);
         if (!fetchResult || fetchResult.status !== CARD_STATUSES.OK_DETAILS || !fetchResult.cardDetails) {
+          sendStatus('Kartendetails nicht gefunden.');
           if (socket?.readyState === 1) {
             socket.send(JSON.stringify({ type: 'scanResult', card: { passcode, en_name: name, de_name: '' } }));
           }
           return;
         }
+        sendStatus('Kartendetails gefunden.');
         const detail = fetchResult.cardDetails;
         const response = {
           type: 'scanResult',
@@ -175,6 +183,7 @@ app.whenReady().then(() => {
           socket.send(JSON.stringify(response));
         }
       } catch (error) {
+        sendStatus('Analyse fehlgeschlagen.');
         if (socket?.readyState === 1) {
           socket.send(JSON.stringify({ type: 'scanAck', ok: false }));
         }
