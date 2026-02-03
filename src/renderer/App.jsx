@@ -1,0 +1,1648 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+
+const emptyCard = {
+  de_name: '',
+  passcode: '',
+  en_name: ''
+};
+
+const menuItems = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'import', label: 'Import' },
+  { id: 'decks', label: 'Decks' },
+  { id: 'duplicates', label: 'Duplicates' },
+  { id: 'jobs', label: 'Jobs' },
+  { id: 'settings', label: 'Settings' },
+  { id: 'logs', label: 'Logs' }
+];
+
+const sortOptions = [
+  { value: 'de_name', label: 'DE Name' },
+  { value: 'en_name', label: 'EN Name' },
+  { value: 'passcode', label: 'Passcode' },
+  { value: 'status', label: 'Status' },
+  { value: 'last_fetched_at', label: 'Last fetched' },
+  { value: 'data_source', label: 'Data source' },
+  { value: 'card_kind', label: 'Card kind' },
+  { value: 'card_subtypes', label: 'Card subtypes' },
+  { value: 'attribute', label: 'Attribute' },
+  { value: 'level_or_rank', label: 'Level/Rank' },
+  { value: 'link_rating', label: 'Link rating' },
+  { value: 'race', label: 'Race' },
+  { value: 'atk', label: 'ATK' },
+  { value: 'def', label: 'DEF' },
+  { value: 'pendulum_scale', label: 'Pendulum scale' },
+  { value: 'spell_trap_property', label: 'Spell/Trap property' }
+];
+
+function App() {
+  const [cards, setCards] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [missingOnly, setMissingOnly] = useState(false);
+  const [activeCard, setActiveCard] = useState(null);
+  const [activeCardDirty, setActiveCardDirty] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [diagnostics, setDiagnostics] = useState('');
+  const [job, setJob] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [busyMessage, setBusyMessage] = useState('');
+  const [settings, setSettings] = useState({});
+  const [duplicates, setDuplicates] = useState([]);
+  const [activeMenu, setActiveMenu] = useState('dashboard');
+  const [decks, setDecks] = useState([]);
+  const [deckUrl, setDeckUrl] = useState('');
+  const [activeDeck, setActiveDeck] = useState(null);
+  const [lastImport, setLastImport] = useState(null);
+  const [sortKey, setSortKey] = useState('updated_at');
+  const [sortDir, setSortDir] = useState('desc');
+  const [importRows, setImportRows] = useState([]);
+  const [importDuplicates, setImportDuplicates] = useState([]);
+  const [importStatus, setImportStatus] = useState('');
+  const [duplicateNotice, setDuplicateNotice] = useState(null);
+  const [openAiTestStatus, setOpenAiTestStatus] = useState('');
+  const [openAiTestBusy, setOpenAiTestBusy] = useState(false);
+  const [validationResults, setValidationResults] = useState([]);
+  const [scannerInfo, setScannerInfo] = useState({ port: 8787, ips: [] });
+  const [scannerStatus, setScannerStatus] = useState({ connected: false, count: 0 });
+  const [portfolio, setPortfolio] = useState({ cards: [], totals: {}, missing: 0, lastUpdatedAt: null });
+  const [portfolioStatus, setPortfolioStatus] = useState('');
+  const [portfolioRefreshing, setPortfolioRefreshing] = useState(false);
+  const lastScanKeyRef = useRef('');
+
+  const loadCards = async () => {
+    const result = await window.api.listCards({
+      search,
+      status: statusFilter,
+      missingDetails: missingOnly
+    });
+    setCards(result);
+  };
+
+  const loadLogs = async () => {
+    const result = await window.api.listLogs();
+    setLogs(result);
+  };
+
+  const handleCollectDiagnostics = async () => {
+    const report = await window.api.collectDiagnostics();
+    setDiagnostics(report);
+  };
+
+  const handleCopyDiagnostics = async () => {
+    if (!diagnostics) return;
+    await navigator.clipboard.writeText(diagnostics);
+  };
+
+  const handleTestOpenAI = async () => {
+    setOpenAiTestBusy(true);
+    setOpenAiTestStatus('Testing OpenAI connection…');
+    try {
+      const result = await window.api.testOpenAIConnection();
+      if (result?.ok) {
+        setOpenAiTestStatus('OpenAI connection OK.');
+      } else {
+        setOpenAiTestStatus(`OpenAI test failed: ${result?.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      setOpenAiTestStatus(`OpenAI test failed: ${error.message}`);
+    } finally {
+      setOpenAiTestBusy(false);
+    }
+  };
+
+  const loadSettings = async () => {
+    const result = await window.api.getSettings();
+    setSettings(result);
+  };
+
+  const loadScannerInfo = async () => {
+    const result = await window.api.getScannerServerInfo();
+    setScannerInfo(result);
+  };
+
+  const loadPortfolio = async () => {
+    const result = await window.api.getPortfolio();
+    setPortfolio(result || { cards: [], totals: {}, missing: 0, lastUpdatedAt: null });
+  };
+
+  const loadDuplicates = async () => {
+    const result = await window.api.listDuplicates();
+    setDuplicates(result);
+  };
+
+  const loadDecks = async () => {
+    const result = await window.api.listDecks();
+    setDecks(result);
+  };
+
+  const loadLastImport = async () => {
+    const result = await window.api.getLastImportBatch();
+    setLastImport(result);
+  };
+
+  useEffect(() => {
+    loadCards();
+  }, [search, statusFilter, missingOnly]);
+
+  useEffect(() => {
+    if (!activeCard || activeCardDirty) return;
+    const updated = cards.find((card) => card.id === activeCard.id);
+    if (updated) {
+      setActiveCard(updated);
+    }
+  }, [cards, activeCard, activeCardDirty]);
+
+  useEffect(() => {
+    loadLogs();
+    loadSettings();
+    loadDuplicates();
+    loadDecks();
+    loadLastImport();
+    loadScannerInfo();
+    loadPortfolio();
+  }, []);
+
+  useEffect(() => {
+    const handler = (payload) => {
+      if (!payload) return;
+      const incomingPasscode = String(payload.passcode || '').trim();
+      const incomingName = String(payload.en_name || payload.de_name || '').trim();
+      if (!incomingPasscode && !incomingName) {
+        if (payload.rawText) {
+          setImportStatus('Scan empfangen, aber keine Karte erkannt.');
+        }
+        return;
+      }
+      const scanKey = incomingPasscode ? incomingPasscode.toLowerCase() : incomingName.toLowerCase();
+      if (!scanKey || scanKey === lastScanKeyRef.current) {
+        return;
+      }
+      lastScanKeyRef.current = scanKey;
+      window.api.resolveScan({ passcode: incomingPasscode, en_name: payload.en_name || '', de_name: payload.de_name || '' }).then((resolved) => {
+        if (!resolved?.card?.passcode) {
+          setImportStatus('Scan nicht gefunden.');
+          return;
+        }
+        window.api.previewImport({
+          rows: [{
+            de_name: resolved.card.de_name || '',
+            en_name: resolved.card.en_name || '',
+            passcode: resolved.card.passcode || incomingPasscode
+          }]
+        }).then((result) => {
+          const row = result?.rows?.[0];
+          if (!row) return;
+          const mergedRow = {
+            ...row,
+            ...resolved.card,
+            exists: row.exists,
+            existing_id: row.existing_id,
+            status: row.exists ? row.status : row.status
+          };
+          setImportRows((prev) => [mergedRow, ...prev]);
+          if (row.exists) {
+            setImportDuplicates((prev) => [...prev, ...(result?.duplicates || [])]);
+          }
+          setImportStatus('Scan erhalten (Android).');
+        });
+      });
+    };
+    window.api.onScanIncoming(handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (payload) => {
+      setScannerStatus({
+        connected: Boolean(payload?.connected),
+        count: payload?.count || 0
+      });
+    };
+    window.api.onScannerStatus(handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (payload) => {
+      if (payload?.message) {
+        setImportStatus(payload.message);
+      }
+    };
+    window.api.onScannerAnalysis(handler);
+  }, []);
+
+  useEffect(() => {
+    let timer;
+    const refresh = async () => {
+      setPortfolioRefreshing(true);
+      setPortfolioStatus('Preise werden aktualisiert (Cardmarket).');
+      try {
+        await window.api.refreshPortfolio();
+        await loadPortfolio();
+        setPortfolioStatus(`Letztes Update: ${new Date().toLocaleTimeString()}`);
+      } catch (error) {
+        setPortfolioStatus(`Preis-Update fehlgeschlagen: ${error.message}`);
+      } finally {
+        setPortfolioRefreshing(false);
+      }
+    };
+    refresh();
+    timer = setInterval(refresh, 60000);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let timer;
+    if (job?.id && job?.status === 'RUNNING') {
+      timer = setInterval(() => {
+        refreshJob();
+      }, 1500);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [job?.id, job?.status]);
+
+  const runWithBusy = async (message, action) => {
+    setBusy(true);
+    setBusyMessage(message);
+    try {
+      return await action();
+    } finally {
+      setBusy(false);
+      setBusyMessage('');
+    }
+  };
+
+  const showDuplicateNotice = (source, items) => {
+    if (!items || items.length === 0) return;
+    setDuplicateNotice({ source, items });
+  };
+
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const handleSelect = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
+    );
+  };
+
+  const handleUpsert = async (card) => {
+    const id = await window.api.upsertCard(card);
+    await loadCards();
+    return id;
+  };
+
+  const handleDelete = async (id) => {
+    await window.api.deleteCard(id);
+    if (activeCard?.id === id) {
+      setActiveCard(null);
+      setActiveCardDirty(false);
+    }
+    await loadCards();
+  };
+
+  const handleSaveCard = async () => {
+    if (!activeCardDetails) return;
+    await runWithBusy('Speichere Karte…', async () => {
+      const id = await handleUpsert(activeCardDetails);
+      const payload = { ...activeCardDetails, id };
+      await window.api.updateCardDetails(payload);
+      setActiveCard(payload);
+      setActiveCardDirty(false);
+    });
+  };
+
+  const handleImport = async () => {
+    await runWithBusy('Importiere CSV…', async () => {
+      const fileResult = await window.api.importCsvFile();
+      if (fileResult?.canceled) return;
+      const rows = parseCsv(fileResult.content || '');
+      const result = await window.api.previewImport({ rows });
+      setImportDuplicates(result?.duplicates || []);
+      setImportRows(result?.rows || []);
+      const newCount = (result?.rows || []).filter((row) => !row.exists).length;
+      setImportStatus(`Importiert: ${newCount} neu, ${result?.duplicates?.length || 0} doppelt.`);
+    });
+  };
+
+  const handleExport = async () => {
+    await runWithBusy('Exportiere CSV…', async () => {
+      const data = await window.api.exportCsv();
+      const csv = toCsv(data);
+      await navigator.clipboard.writeText(csv);
+      alert('CSV wurde in die Zwischenablage kopiert.');
+    });
+  };
+
+  const handlePasteNames = async () => {
+    const input = prompt('Kartennamen zeilenweise einfügen');
+    if (!input) return;
+    const lines = input.split('\n');
+    await runWithBusy('Füge Karten ein…', async () => {
+      const rows = lines
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((name) => ({ de_name: name, en_name: '', passcode: '' }));
+      const result = await window.api.previewImport({ rows });
+      setImportDuplicates(result?.duplicates || []);
+      setImportRows(result?.rows || []);
+      const newCount = (result?.rows || []).filter((row) => !row.exists).length;
+      setImportStatus(`Importiert: ${newCount} neu, ${result?.duplicates?.length || 0} doppelt.`);
+    });
+  };
+
+  const handleImportFetchAll = async () => {
+    if (importRows.length === 0) return;
+    await runWithBusy('Fetch details (Import)…', async () => {
+      const rowsToFetch = importRows
+        .map((row, index) => ({ ...row, __index: index }))
+        .filter((row) => !row.exists);
+      const result = await window.api.fetchPreviewDetails({ rows: rowsToFetch });
+      const updatedRows = [...importRows];
+      (result?.rows || []).forEach((row) => {
+        const index = row.__index;
+        if (typeof index === 'number') {
+          const { __index, ...rest } = row;
+          updatedRows[index] = { ...updatedRows[index], ...rest };
+        }
+      });
+      setImportRows(updatedRows);
+    });
+  };
+
+  const handleImportCheck = async () => {
+    if (importRows.length === 0) return;
+    await runWithBusy('Prüfe Namen & Passcodes…', async () => {
+      const rowsToFetch = importRows
+        .map((row, index) => ({ ...row, __index: index }))
+        .filter((row) => !row.exists);
+      const result = await window.api.fetchPreviewDetails({ rows: rowsToFetch });
+      const updatedRows = [...importRows];
+      (result?.rows || []).forEach((row) => {
+        const index = row.__index;
+        if (typeof index === 'number') {
+          const { __index, ...rest } = row;
+          updatedRows[index] = { ...updatedRows[index], ...rest };
+        }
+      });
+      setImportRows(updatedRows);
+    });
+  };
+
+  const handleValidatePasscodes = async () => {
+    await runWithBusy('Prüfe Passcodes…', async () => {
+      const ids = selectedIds.length > 0 ? selectedIds : [];
+      const result = await window.api.validatePasscodes({ ids });
+      setValidationResults(result?.results || []);
+    });
+  };
+
+  const handleCopyValue = async (value) => {
+    if (value === null || value === undefined) return;
+    await navigator.clipboard.writeText(String(value));
+  };
+
+  const handleAddToDashboard = async () => {
+    if (importRows.length === 0) return;
+    await runWithBusy('Übertrage ins Dashboard…', async () => {
+      const rowsToAdd = importRows.filter((row) => !row.exists);
+      const result = await window.api.addPreviewCards({ rows: rowsToAdd });
+      showDuplicateNotice('Import', result?.duplicates || []);
+      setImportRows([]);
+      setImportDuplicates([]);
+      setImportStatus('');
+      await loadLastImport();
+      await loadCards();
+    });
+  };
+
+  const handleAddImportRow = async (index) => {
+    const row = importRows[index];
+    if (!row || row.exists) return;
+    await runWithBusy('Übertrage Karte ins Dashboard…', async () => {
+      const result = await window.api.addPreviewCards({ rows: [row] });
+      showDuplicateNotice('Import', result?.duplicates || []);
+      setImportRows((prev) => prev.filter((_, idx) => idx !== index));
+      await loadLastImport();
+      await loadCards();
+    });
+  };
+
+  const handleApplyImportSuggestions = (index) => {
+    setImportRows((prev) => prev.map((row, idx) => {
+      if (idx !== index) return row;
+      return {
+        ...row,
+        en_name: row.suggested_name || row.en_name,
+        passcode: row.suggested_passcode || row.passcode,
+        name_mismatch: false,
+        passcode_mismatch: false
+      };
+    }));
+  };
+
+  const handleRemoveImportRow = (index) => {
+    setImportRows((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleFetchMissing = async () => {
+    await runWithBusy('Starte Fetch missing…', async () => {
+      const jobId = await window.api.startFetchMissingDetails();
+      setJob({ id: jobId, status: 'RUNNING' });
+    });
+  };
+
+  const handleFetchSelected = async () => {
+    if (selectedIds.length === 0) return;
+    await runWithBusy('Starte Fetch selected…', async () => {
+      const jobId = await window.api.startFetchSelectedDetails(selectedIds);
+      setJob({ id: jobId, status: 'RUNNING' });
+    });
+  };
+
+  const handleFetchSingle = async (id) => {
+    await runWithBusy('Starte Fetch…', async () => {
+      const jobId = await window.api.startFetchSelectedDetails([id]);
+      setJob({ id: jobId, status: 'RUNNING' });
+    });
+  };
+
+  const handleClearDetails = async (id) => {
+    await runWithBusy('Entferne Details…', async () => {
+      await window.api.clearDetails(id);
+      await loadCards();
+    });
+  };
+
+  const refreshJob = async () => {
+    if (!job?.id) return;
+    const status = await window.api.getJobStatus(job.id);
+    setJob(status);
+  };
+
+  const handlePauseJob = async () => {
+    await window.api.pauseJob(job.id);
+    await refreshJob();
+  };
+
+  const handleResumeJob = async () => {
+    await window.api.resumeJob(job.id);
+    await refreshJob();
+  };
+
+  const handleCancelJob = async () => {
+    await window.api.cancelJob(job.id);
+    await refreshJob();
+  };
+
+  const handleSaveSettings = async () => {
+    await runWithBusy('Speichere Settings…', async () => {
+      await window.api.saveSettings(settings);
+      await loadSettings();
+    });
+  };
+
+  const handleImportDeck = async () => {
+    if (!deckUrl) return;
+    await runWithBusy('Importiere Deck…', async () => {
+      const result = await window.api.importDeckFromUrl({ url: deckUrl });
+      setDeckUrl('');
+      await loadDecks();
+      if (result?.deckId) {
+        const deckDetails = await window.api.getDeck(result.deckId);
+        setActiveDeck(deckDetails);
+      }
+    });
+  };
+
+  const handleSelectDeck = async (deckId) => {
+    const deckDetails = await window.api.getDeck(deckId);
+    setActiveDeck(deckDetails);
+  };
+
+  const handleDeleteDeck = async (deckId) => {
+    await runWithBusy('Lösche Deck…', async () => {
+      await window.api.deleteDeck(deckId);
+      if (activeDeck?.deck?.id === deckId) setActiveDeck(null);
+      await loadDecks();
+    });
+  };
+
+  const activeCardDetails = useMemo(() => {
+    if (!activeCard) return null;
+    if (activeCardDirty) return activeCard;
+    return cards.find((card) => card.id === activeCard.id) || activeCard;
+  }, [activeCard, activeCardDirty, cards]);
+
+  const sortedCards = useMemo(() => {
+    const data = [...cards];
+    const direction = sortDir === 'asc' ? 1 : -1;
+    data.sort((a, b) => {
+      const valueA = normalizeSortValue(a[sortKey]);
+      const valueB = normalizeSortValue(b[sortKey]);
+      if (valueA < valueB) return -1 * direction;
+      if (valueA > valueB) return 1 * direction;
+      return 0;
+    });
+    return data;
+  }, [cards, sortDir, sortKey]);
+
+  const deckStats = useMemo(() => {
+    if (!activeDeck?.entries) return null;
+    const total = activeDeck.entries.reduce((sum, entry) => sum + entry.quantity, 0);
+    const owned = activeDeck.entries.reduce((sum, entry) => sum + (entry.owned ? entry.quantity : 0), 0);
+    return { total, owned, missing: total - owned };
+  }, [activeDeck]);
+
+  const portfolioTotals = useMemo(() => {
+    return Object.entries(portfolio.totals || {});
+  }, [portfolio.totals]);
+
+  const portfolioRows = useMemo(() => {
+    return (portfolio.cards || []).slice(0, 8);
+  }, [portfolio.cards]);
+
+  const handleSelectLastImport = async () => {
+    if (!lastImport?.id) return;
+    await runWithBusy('Wähle Import aus…', async () => {
+      const rows = await window.api.listCardsByImportBatch(lastImport.id);
+      const ids = rows.map((row) => row.id);
+      setSelectedIds(ids);
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.length === 0) return;
+    await runWithBusy('Lösche Auswahl…', async () => {
+      await window.api.deleteCards(selectedIds);
+      if (activeCard && selectedIds.includes(activeCard.id)) {
+        setActiveCard(null);
+      }
+      setSelectedIds([]);
+      await loadCards();
+    });
+  };
+
+  const handleFetchAll = async () => {
+    await runWithBusy('Starte Fetch all…', async () => {
+      const jobId = await window.api.startFetchAllDetails();
+      setJob({ id: jobId, status: 'RUNNING' });
+    });
+  };
+
+  const handleSelectVisible = () => {
+    const ids = sortedCards.map((card) => card.id);
+    setSelectedIds(ids);
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedIds([]);
+  };
+
+  const handleRefreshPortfolio = async () => {
+    setPortfolioRefreshing(true);
+    setPortfolioStatus('Preise werden aktualisiert (Cardmarket).');
+    try {
+      await window.api.refreshPortfolio();
+      await loadPortfolio();
+      setPortfolioStatus(`Letztes Update: ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+      setPortfolioStatus(`Preis-Update fehlgeschlagen: ${error.message}`);
+    } finally {
+      setPortfolioRefreshing(false);
+    }
+  };
+
+
+  const handleImportFieldChange = (index, field, value) => {
+    setImportRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+
+  const activeJobMessage = useMemo(() => {
+    if (job?.status !== 'RUNNING') return '';
+    if (job?.current_action) return job.current_action;
+    if (job?.current_card_id) return `Fetching card #${job.current_card_id}`;
+    return 'Fetching cards…';
+  }, [job]);
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="sidebar__brand">
+          <span className="brand__dot" />
+          <div>
+            <h1>YGO Card Manager</h1>
+            <p>Cardcluster + 4 weitere Quellen</p>
+          </div>
+        </div>
+        <nav className="sidebar__nav">
+          {menuItems.map((item) => (
+            <button
+              key={item.id}
+              className={activeMenu === item.id ? 'nav-item nav-item--active' : 'nav-item'}
+              onClick={() => setActiveMenu(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar__footer">v0.1 · Dark mode</div>
+      </aside>
+
+      <div className="content">
+        <header className="topbar">
+          <div>
+            <h2>{menuItems.find((item) => item.id === activeMenu)?.label}</h2>
+            <p>Manage your Yu-Gi-Oh inventory locally.</p>
+          </div>
+          <div className="topbar__actions">
+            {(busy || job?.status === 'RUNNING') && (
+              <div className="busy-indicator">
+                <span className="spinner" />
+                <span>{busyMessage || activeJobMessage || 'Arbeite…'}</span>
+              </div>
+            )}
+            <button className="ghost" onClick={loadCards}>Refresh</button>
+            <button className="primary" onClick={() => handleUpsert(emptyCard)}>Add Card</button>
+          </div>
+        </header>
+
+        {activeMenu === 'dashboard' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Inventory</h3>
+            </div>
+
+            <section className="portfolio-section">
+              <div className="portfolio-header">
+                <div>
+                  <h4>Portfolio</h4>
+                  <p>Preise von Cardmarket (via YGOPRODeck). Aktualisiert alle 60 Sekunden.</p>
+                </div>
+                <button onClick={handleRefreshPortfolio} disabled={portfolioRefreshing}>
+                  {portfolioRefreshing ? 'Aktualisiere…' : 'Jetzt aktualisieren'}
+                </button>
+              </div>
+              <div className="portfolio-summary">
+                <div className="portfolio-summary__item">
+                  <span className="label">Gesamtwert</span>
+                  <div className="value">
+                    {portfolioTotals.length === 0 ? '—' : portfolioTotals.map(([currency, total]) => (
+                      <span key={currency}>
+                        {Number(total || 0).toFixed(2)} {currency}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="portfolio-summary__item">
+                  <span className="label">Ohne Preis</span>
+                  <span className="value">{portfolio.missing}</span>
+                </div>
+                <div className="portfolio-summary__item">
+                  <span className="label">Letztes Update</span>
+                  <span className="value">{portfolio.lastUpdatedAt || '—'}</span>
+                </div>
+              </div>
+              {portfolioRows.length === 0 ? (
+                <p className="portfolio-empty">Noch keine Preisdaten vorhanden.</p>
+              ) : (
+                <table className="portfolio-table">
+                  <thead>
+                    <tr>
+                      <th>Card</th>
+                      <th>Passcode</th>
+                      <th>Preis</th>
+                      <th>Quelle</th>
+                      <th>Update</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {portfolioRows.map((card) => (
+                      <tr key={card.id}>
+                        <td>{card.en_name || card.de_name}</td>
+                        <td>{card.passcode}</td>
+                        <td>
+                          {card.price_value} {card.price_currency}
+                        </td>
+                        <td>{card.price_source}</td>
+                        <td>{card.price_updated_at}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {portfolioStatus && <p className="portfolio-status">{portfolioStatus}</p>}
+            </section>
+
+            <section className="filters">
+              <div className="filters__row">
+                <input
+                  placeholder="Search name or passcode"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                  <option value="">All statuses</option>
+                  <option value="OK_DETAILS">OK_DETAILS</option>
+                  <option value="NOT_FOUND">NOT_FOUND</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="SKIP_DETAILS_PRESENT">SKIP_DETAILS_PRESENT</option>
+                  <option value="NEED_INPUT">NEED_INPUT</option>
+                  <option value="WARNING_PASSCODE_MISMATCH">WARNING_PASSCODE_MISMATCH</option>
+                </select>
+                <select value={sortKey} onChange={(event) => setSortKey(event.target.value)}>
+                  {sortOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      Sort: {option.label}
+                    </option>
+                  ))}
+                </select>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={missingOnly}
+                    onChange={(event) => setMissingOnly(event.target.checked)}
+                  />
+                  Missing details
+                </label>
+              </div>
+              <div className="filters__row filters__row--actions">
+                <div className="action-group">
+                  <span className="action-label">Fetch</span>
+                  <button onClick={handleFetchAll}>Fetch all</button>
+                  <button onClick={handleFetchMissing}>Fetch missing</button>
+                  <button onClick={handleFetchSelected} disabled={selectedIds.length === 0}>
+                    Fetch selected
+                  </button>
+                  <button onClick={handleValidatePasscodes}>
+                    Check passcodes
+                  </button>
+                </div>
+                <div className="action-group">
+                  <span className="action-label">Selection</span>
+                  <button onClick={handleSelectLastImport} disabled={!lastImport?.id}>
+                    Select last import
+                  </button>
+                  {selectedIds.length > 0 && (
+                    <button className="ghost" onClick={handleDeleteSelected}>
+                      Delete selected
+                    </button>
+                  )}
+                  {selectedIds.length > 0 && (
+                    <button className="ghost" onClick={handleSelectVisible}>
+                      Select all shown
+                    </button>
+                  )}
+                  {selectedIds.length > 0 && (
+                    <button className="ghost" onClick={handleDeselectAll}>
+                      Deselect all
+                    </button>
+                  )}
+                  {lastImport?.id && (
+                    <span className="import-hint">
+                      Batch #{lastImport.id} · {lastImport.count || 0} Karten
+                    </span>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {job?.status === 'RUNNING' && (
+              <div className="job-inline">
+                <span>{activeJobMessage}</span>
+                <span>
+                  {job.done || 0}/{job.total || 0}
+                </span>
+                <progress value={job.done || 0} max={job.total || 1} />
+              </div>
+            )}
+
+            <main className="app__main app__main--single">
+              <section className="table-section">
+                <table>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('de_name')}>
+                          DE {renderSortIndicator(sortKey, sortDir, 'de_name')}
+                        </button>
+                      </th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('passcode')}>
+                          Passcode {renderSortIndicator(sortKey, sortDir, 'passcode')}
+                        </button>
+                      </th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('en_name')}>
+                          EN {renderSortIndicator(sortKey, sortDir, 'en_name')}
+                        </button>
+                      </th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('status')}>
+                          Status {renderSortIndicator(sortKey, sortDir, 'status')}
+                        </button>
+                      </th>
+                      <th>
+                        <button className="sort-button" onClick={() => handleSort('last_fetched_at')}>
+                          Last fetched {renderSortIndicator(sortKey, sortDir, 'last_fetched_at')}
+                        </button>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedCards.map((card) => (
+                      <tr
+                        key={card.id}
+                        onClick={() => {
+                          setActiveCard(card);
+                          setActiveCardDirty(false);
+                        }}
+                      >
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(card.id)}
+                            onChange={(event) => {
+                              event.stopPropagation();
+                              handleSelect(card.id);
+                            }}
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        </td>
+                        <td>{card.de_name}</td>
+                        <td>{card.passcode}</td>
+                        <td>{card.en_name}</td>
+                        <td>
+                          <span className={`status-pill status-pill--${card.status || 'UNKNOWN'}`}>
+                            {card.status || 'UNKNOWN'}
+                          </span>
+                        </td>
+                        <td>{card.last_fetched_at}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            </main>
+          </section>
+        )}
+
+        {activeMenu === 'decks' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Deck Import</h3>
+              <div className="panel__actions">
+                <input
+                  className="deck-url"
+                  placeholder="Cardcluster Deck URL"
+                  value={deckUrl}
+                  onChange={(event) => setDeckUrl(event.target.value)}
+                />
+                <button className="primary" onClick={handleImportDeck}>Import Deck</button>
+              </div>
+            </div>
+
+            <div className="deck-grid">
+              <div className="deck-list">
+                <h4>Decks</h4>
+                {decks.length === 0 ? (
+                  <p>No decks imported yet.</p>
+                ) : (
+                  <ul>
+                    {decks.map((deck) => (
+                      <li key={deck.id} className={activeDeck?.deck?.id === deck.id ? 'deck-item active' : 'deck-item'}>
+                        <button onClick={() => handleSelectDeck(deck.id)}>{deck.name}</button>
+                        <span>{deck.total_cards} cards</span>
+                        <button className="ghost" onClick={() => handleDeleteDeck(deck.id)}>Delete</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="deck-details">
+                {activeDeck ? (
+                  <div>
+                    <div className="deck-header">
+                      <div>
+                        <h4>{activeDeck.deck.name}</h4>
+                        <p>{activeDeck.deck.cardcluster_url}</p>
+                      </div>
+                      {deckStats && (
+                        <div className="deck-stats">
+                          <span className="status-pill status-pill--OK_DETAILS">Owned {deckStats.owned}</span>
+                          <span className="status-pill status-pill--NOT_FOUND">Missing {deckStats.missing}</span>
+                          <span className="status-pill">Total {deckStats.total}</span>
+                        </div>
+                      )}
+                    </div>
+                    <table className="deck-table">
+                      <thead>
+                        <tr>
+                          <th>Card</th>
+                          <th>Passcode</th>
+                          <th>Qty</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeDeck.entries.map((entry) => (
+                          <tr key={entry.id} className={entry.owned ? 'owned' : 'missing'}>
+                            <td>{entry.card_name}</td>
+                            <td>{entry.passcode}</td>
+                            <td>{entry.quantity}</td>
+                            <td>
+                              <span className={`status-pill ${entry.owned ? 'status-pill--OK_DETAILS' : 'status-pill--NOT_FOUND'}`}>
+                                {entry.owned ? 'Owned' : 'Missing'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p>Select a deck to view details.</p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeMenu === 'import' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Import</h3>
+              <div className="panel__actions">
+                <button onClick={handleImport}>Import CSV</button>
+                <button onClick={handlePasteNames}>Paste Names</button>
+                <button onClick={handleExport}>Export CSV</button>
+                <button onClick={handleImportFetchAll} disabled={importRows.length === 0}>
+                  Fetch All (Import)
+                </button>
+                <button onClick={handleImportCheck} disabled={importRows.length === 0}>
+                  Check names/passcodes
+                </button>
+                <button className="primary" onClick={handleAddToDashboard} disabled={importRows.length === 0}>
+                  Add to Dashboard
+                </button>
+              </div>
+            </div>
+            <div className="scan-summary">
+              <span>Android Scanner (WLAN)</span>
+              <span>Port: {scannerInfo.port}</span>
+              <span>
+                IPs: {scannerInfo.ips.length ? scannerInfo.ips.join(', ') : 'Keine IP gefunden'}
+              </span>
+              <span className={scannerStatus.connected ? 'scanner-status scanner-status--ok' : 'scanner-status'}>
+                {scannerStatus.connected ? `APK verbunden (${scannerStatus.count})` : 'APK nicht verbunden'}
+              </span>
+            </div>
+            {importStatus && <div className="scan-summary"><span>{importStatus}</span></div>}
+            {importDuplicates.length > 0 && (
+              <div className="duplicate-group">
+                <strong>Duplikate gefunden:</strong>
+                <ul>
+                  {importDuplicates.map((item, index) => (
+                    <li key={`${item.existing?.id || 'dup'}-${index}`}>
+                      {[item.incoming?.de_name, item.incoming?.en_name, item.incoming?.passcode].filter(Boolean).join(' • ')} →
+                      bereits vorhanden: {[item.existing?.de_name, item.existing?.en_name, item.existing?.passcode].filter(Boolean).join(' • ')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <table className="import-table">
+              <thead>
+                <tr>
+                  <th>In DB</th>
+                  <th>DE</th>
+                  <th>Passcode</th>
+                  <th>EN</th>
+                  <th>Status</th>
+                  <th>Checks</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importRows.map((row, index) => (
+                  <tr key={`${row.passcode || row.en_name || row.de_name}-${index}`}>
+                    <td>
+                      <span className={row.exists ? 'status-pill status-pill--OK_DETAILS' : 'status-pill status-pill--NEED_INPUT'}>
+                        {row.exists ? 'Ja' : 'Neu'}
+                      </span>
+                    </td>
+                    <td>
+                      <input
+                        value={row.de_name || ''}
+                        onChange={(event) => handleImportFieldChange(index, 'de_name', event.target.value)}
+                        disabled={row.exists}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={row.passcode || ''}
+                        onChange={(event) => handleImportFieldChange(index, 'passcode', event.target.value)}
+                        disabled={row.exists}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={row.en_name || ''}
+                        onChange={(event) => handleImportFieldChange(index, 'en_name', event.target.value)}
+                        disabled={row.exists}
+                      />
+                    </td>
+                    <td>{row.status || 'NEED_INPUT'}</td>
+                    <td>
+                      {row.passcode_mismatch && (
+                        <span className="status-pill status-pill--WARNING_PASSCODE_MISMATCH">Passcode?</span>
+                      )}
+                      {row.name_mismatch && (
+                        <span className="status-pill status-pill--WARNING_PASSCODE_MISMATCH">Name?</span>
+                      )}
+                      {!row.passcode_mismatch && !row.name_mismatch && 'OK'}
+                    </td>
+                    <td>
+                      <div className="import-row-actions">
+                        <button onClick={() => handleAddImportRow(index)} disabled={row.exists}>
+                          Add
+                        </button>
+                        {(row.suggested_name || row.suggested_passcode) && (
+                          <button onClick={() => handleApplyImportSuggestions(index)}>
+                            Vorschlag übernehmen
+                          </button>
+                        )}
+                        <button className="ghost" onClick={() => handleRemoveImportRow(index)}>
+                          Löschen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {activeMenu === 'duplicates' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Duplicates</h3>
+              <button onClick={loadDuplicates}>Refresh list</button>
+            </div>
+            {duplicates.length === 0 ? (
+              <p>No duplicates found.</p>
+            ) : (
+              duplicates.map((group, idx) => (
+                <div key={idx} className="duplicate-group">
+                  <p>Group {idx + 1}</p>
+                  <ul>
+                    {group.map((card) => (
+                      <li key={card.id}>
+                        #{card.id} {card.de_name} / {card.en_name} ({card.passcode})
+                        {group[0].id !== card.id && (
+                          <button
+                            onClick={async () => {
+                              await window.api.mergeDuplicate({ keepId: group[0].id, mergeId: card.id });
+                              await loadCards();
+                              await loadDuplicates();
+                            }}
+                          >
+                            Merge into #{group[0].id}
+                          </button>
+                        )}
+                        <button
+                          className="ghost"
+                          onClick={async () => {
+                            await window.api.ignoreDuplicate(card.id);
+                            await loadDuplicates();
+                          }}
+                        >
+                          Ignore
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            )}
+          </section>
+        )}
+
+        {activeMenu === 'jobs' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Job Status</h3>
+              <button onClick={refreshJob}>Refresh</button>
+            </div>
+            {job ? (
+              <div>
+                <p>Job #{job.id}</p>
+                <p>Status: {job.status}</p>
+                <p>
+                  Progress: {job.done}/{job.total}
+                </p>
+                <progress value={job.done || 0} max={job.total || 1} />
+                <p>Last error: {job.last_error}</p>
+                <div className="job-actions">
+                  <button onClick={handlePauseJob}>Pause</button>
+                  <button onClick={handleResumeJob}>Resume</button>
+                  <button onClick={handleCancelJob}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <p>No active job.</p>
+            )}
+          </section>
+        )}
+
+        {activeMenu === 'settings' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Settings</h3>
+              <button className="primary" onClick={handleSaveSettings}>Save settings</button>
+            </div>
+            <div className="settings-grid">
+              <label>
+                batch_size
+                <input
+                  value={settings.batch_size || ''}
+                  onChange={(event) => setSettings({ ...settings, batch_size: event.target.value })}
+                />
+              </label>
+              <label>
+                concurrency
+                <input
+                  value={settings.concurrency || ''}
+                  onChange={(event) => setSettings({ ...settings, concurrency: event.target.value })}
+                />
+              </label>
+              <label>
+                request_delay_ms
+                <input
+                  value={settings.request_delay_ms || ''}
+                  onChange={(event) => setSettings({ ...settings, request_delay_ms: event.target.value })}
+                />
+              </label>
+              <label>
+                user_agent
+                <input
+                  value={settings.user_agent || ''}
+                  onChange={(event) => setSettings({ ...settings, user_agent: event.target.value })}
+                />
+              </label>
+              <label>
+                max_candidates_passcode_match
+                <input
+                  value={settings.max_candidates_passcode_match || ''}
+                  onChange={(event) =>
+                    setSettings({ ...settings, max_candidates_passcode_match: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                openai_api_key
+                <input
+                  type="password"
+                  value={settings.openai_api_key || ''}
+                  onChange={(event) =>
+                    setSettings({ ...settings, openai_api_key: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                openai_base_url
+                <input
+                  value={settings.openai_base_url || ''}
+                  onChange={(event) =>
+                    setSettings({ ...settings, openai_base_url: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                openai_timeout_ms
+                <input
+                  value={settings.openai_timeout_ms || ''}
+                  onChange={(event) =>
+                    setSettings({ ...settings, openai_timeout_ms: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+            <div className="settings-actions">
+              <button onClick={handleTestOpenAI} disabled={openAiTestBusy}>
+                {openAiTestBusy ? 'Testing OpenAI…' : 'Test OpenAI connection'}
+              </button>
+              {openAiTestStatus && <span className="inline-status">{openAiTestStatus}</span>}
+            </div>
+          </section>
+        )}
+
+        {activeMenu === 'logs' && (
+          <section className="panel fade-in">
+            <div className="panel__header">
+              <h3>Logs</h3>
+              <div className="panel__actions">
+                <button onClick={handleCollectDiagnostics}>Generate diagnostics</button>
+                <button onClick={handleCopyDiagnostics} disabled={!diagnostics}>
+                  Copy diagnostics
+                </button>
+                <button onClick={loadLogs}>Refresh</button>
+              </div>
+            </div>
+            {diagnostics && (
+              <div className="diagnostics">
+                <h4>Diagnostics report</h4>
+                <textarea readOnly value={diagnostics} rows={10} />
+              </div>
+            )}
+            <div className="log-panel">
+              {logs.map((log) => (
+                <div key={log.id}>
+                  [{log.created_at}] {log.level}: {log.message}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+      {duplicateNotice && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h3>Duplikate erkannt</h3>
+            <p>
+              Beim <strong>{duplicateNotice.source}</strong> wurden {duplicateNotice.items.length} Karte(n)
+              übersprungen, weil sie bereits in der Datenbank vorhanden sind.
+            </p>
+            <div className="modal-list">
+              {duplicateNotice.items.map((item, index) => (
+                <div key={`${item.existing?.id || 'dup'}-${index}`} className="modal-row">
+                  <div>
+                    <strong>Neu:</strong>{' '}
+                    {[item.incoming?.de_name, item.incoming?.en_name, item.incoming?.passcode]
+                      .filter(Boolean)
+                      .join(' • ') || '—'}
+                  </div>
+                  <div>
+                    <strong>Bereits vorhanden:</strong>{' '}
+                    {[item.existing?.de_name, item.existing?.en_name, item.existing?.passcode]
+                      .filter(Boolean)
+                      .join(' • ') || '—'}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="primary" onClick={() => setDuplicateNotice(null)}>
+                Verstanden
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {validationResults.length > 0 && (
+        <div className="modal-backdrop" onClick={() => setValidationResults([])}>
+          <div className="modal modal--wide" onClick={(event) => event.stopPropagation()}>
+            <h3>Passcode/Name Checks</h3>
+            <p>Folgende Karten passen nicht zu den gefundenen Online-Daten:</p>
+            <div className="modal-list">
+              {validationResults.map((item) => (
+                <div key={item.id} className="modal-row">
+                  <div>
+                    <strong>#{item.id}</strong> {item.existing_name}
+                  </div>
+                  <div>
+                    Passcode: {item.existing_passcode} → {item.fetched_passcode}
+                  </div>
+                  <div>
+                    Name: {item.existing_name} → {item.fetched_name}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="primary" onClick={() => setValidationResults([])}>
+                Schließen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {activeCardDetails && (
+        <div className="modal-backdrop" onClick={() => setActiveCard(null)}>
+          <div className="modal modal--wide detail-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="detail-modal__header">
+              <h3>Card Details</h3>
+              <div className="detail-modal__header-actions">
+                <button className="ghost" onClick={() => setActiveCard(null)}>Close</button>
+              </div>
+            </div>
+            {activeCardDetails.source_url && (
+              <div className="detail-modal__image">
+                <img src={activeCardDetails.source_url} alt={activeCardDetails.en_name || activeCardDetails.de_name || 'Card'} />
+              </div>
+            )}
+            <div className="detail-card fade-in">
+              <label>
+                DE Name
+                <div className="detail-input-row">
+                  <input
+                    value={activeCardDetails.de_name || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, de_name: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                  <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.de_name)}>Copy</button>
+                </div>
+              </label>
+              <label>
+                Passcode
+                <div className="detail-input-row">
+                  <input
+                    value={activeCardDetails.passcode || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, passcode: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                  <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.passcode)}>Copy</button>
+                </div>
+              </label>
+              <label>
+                EN Name
+                <div className="detail-input-row">
+                  <input
+                    value={activeCardDetails.en_name || ''}
+                    onChange={(event) => {
+                      setActiveCard({ ...activeCardDetails, en_name: event.target.value });
+                      setActiveCardDirty(true);
+                    }}
+                  />
+                  <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.en_name)}>Copy</button>
+                </div>
+              </label>
+
+              <div className="detail-actions">
+                <button className="primary" onClick={handleSaveCard}>Save</button>
+                <button className="ghost" onClick={() => handleDelete(activeCardDetails.id)}>Delete</button>
+                <button onClick={() => handleFetchSingle(activeCardDetails.id)}>Details neu laden</button>
+                <button onClick={() => handleClearDetails(activeCardDetails.id)}>Clear details</button>
+              </div>
+
+              <div className="detail-fields">
+                <p>Status: {activeCardDetails.status}</p>
+                <label>
+                  Source
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.data_source || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, data_source: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.data_source)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Cardcluster URL
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.cardcluster_url || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, cardcluster_url: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.cardcluster_url)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Source URL
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.source_url || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, source_url: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.source_url)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Kind
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.card_kind || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, card_kind: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.card_kind)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Subtypes
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.card_subtypes || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, card_subtypes: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.card_subtypes)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Attribute
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.attribute || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, attribute: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.attribute)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Level/Rank
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.level_or_rank ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, level_or_rank: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.level_or_rank)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Link Rating
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.link_rating ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, link_rating: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.link_rating)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Race
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.race || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, race: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.race)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  ATK
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.atk ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, atk: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.atk)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  DEF
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.def ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, def: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.def)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Pendulum Scale
+                  <div className="detail-input-row">
+                    <input
+                      type="number"
+                      value={activeCardDetails.pendulum_scale ?? ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, pendulum_scale: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.pendulum_scale)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Spell/Trap Property
+                  <div className="detail-input-row">
+                    <input
+                      value={activeCardDetails.spell_trap_property || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, spell_trap_property: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.spell_trap_property)}>Copy</button>
+                  </div>
+                </label>
+                <label>
+                  Effect (EN)
+                  <div className="detail-input-row">
+                    <textarea
+                      rows={6}
+                      value={activeCardDetails.effect_text_en || ''}
+                      onChange={(event) => {
+                        setActiveCard({ ...activeCardDetails, effect_text_en: event.target.value });
+                        setActiveCardDirty(true);
+                      }}
+                    />
+                    <button className="ghost" onClick={() => handleCopyValue(activeCardDetails.effect_text_en)}>Copy</button>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {selectedIds.length > 0 && (
+        <div className="selection-toast">
+          {selectedIds.length} ausgewählt
+        </div>
+      )}
+    </div>
+  );
+}
+
+function parseCsv(input) {
+  const lines = input.trim().split(/\r?\n/);
+  const header = lines.shift().split(';').map((item) => item.trim());
+  return lines.map((line) => {
+    const values = line.split(';');
+    const row = {};
+    header.forEach((key, idx) => {
+      row[key] = values[idx] ? values[idx].trim() : '';
+    });
+    return row;
+  });
+}
+
+function toCsv(rows) {
+  if (!rows.length) return '';
+  const header = Object.keys(rows[0]);
+  const lines = [header.join(';')];
+  rows.forEach((row) => {
+    lines.push(header.map((key) => JSON.stringify(row[key] ?? '')).join(';'));
+  });
+  return lines.join('\n');
+}
+
+function normalizeSortValue(value) {
+  if (value === null || value === undefined) return '';
+  const numeric = Number(value);
+  if (!Number.isNaN(numeric) && value !== '') return numeric;
+  return String(value).toLowerCase();
+}
+
+function renderSortIndicator(activeKey, direction, key) {
+  if (activeKey !== key) return null;
+  return direction === 'asc' ? '▲' : '▼';
+}
+
+export default App;
