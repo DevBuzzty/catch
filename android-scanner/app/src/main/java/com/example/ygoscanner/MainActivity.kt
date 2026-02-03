@@ -11,6 +11,7 @@ import android.widget.ListView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.Camera
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -60,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private val libraryItems = mutableListOf<CardRecord>()
     private lateinit var libraryAdapter: CardAdapter
     private var torchEnabled = false
+    private var activeCamera: Camera? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,7 +105,7 @@ class MainActivity : AppCompatActivity() {
         torchButton.setOnClickListener {
             torchEnabled = !torchEnabled
             torchButton.text = if (torchEnabled) "Licht an" else "Licht"
-            previewView.cameraControl?.enableTorch(torchEnabled)
+            activeCamera?.cameraControl?.enableTorch(torchEnabled)
         }
     }
 
@@ -188,7 +190,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+            activeCamera = cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
         }, ContextCompat.getMainExecutor(this))
     }
 
