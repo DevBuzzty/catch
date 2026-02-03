@@ -48,11 +48,14 @@ app.whenReady().then(() => {
     onScan: async (card, socket) => {
       if (!mainWindow) return;
       mainWindow.webContents.send('scanner:incoming', card);
-      if (!card?.passcode) return;
+      const passcode = String(card?.passcode || '').trim();
+      const enName = String(card?.en_name || '').trim();
+      const deName = String(card?.de_name || '').trim();
+      if (!passcode && !enName && !deName) return;
       const fetchResult = await fetchCardDetails({
-        passcode: card.passcode,
-        en_name: '',
-        de_name: '',
+        passcode,
+        en_name: enName,
+        de_name: deName,
         userAgent,
         maxCandidates
       }).catch(() => null);
@@ -63,9 +66,9 @@ app.whenReady().then(() => {
       const response = {
         type: 'scanResult',
         card: {
-          passcode: detail.passcode || card.passcode || '',
-          en_name: detail.name || detail.en_name || '',
-          de_name: detail.de_name || ''
+          passcode: detail.passcode || passcode || '',
+          en_name: detail.name || detail.en_name || enName || '',
+          de_name: detail.de_name || deName || ''
         }
       };
       if (socket?.readyState === 1) {

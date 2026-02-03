@@ -154,14 +154,16 @@ class MainActivity : AppCompatActivity() {
                                         val extra = nameCandidate?.let { " • $it" } ?: ""
                                         statusText.post { statusText.text = "Status: Passcode erkannt ($confirmed)$extra" }
                                     }
-                                } else if (!nameCandidate.isNullOrBlank()) {
+                                }
+                                if (!nameCandidate.isNullOrBlank()) {
                                     if (trackNameCandidate(nameCandidate)) {
                                         sendCard(CardPayload(deName = nameCandidate, enName = nameCandidate, passcode = ""))
                                         statusText.post { statusText.text = "Status: Name erkannt ($nameCandidate)" }
                                     } else {
                                         statusText.post { statusText.text = "Status: Name prüfen ($nameCandidate)" }
                                     }
-                                } else {
+                                }
+                                if (passcode == null && nameCandidate.isNullOrBlank()) {
                                     statusText.post { statusText.text = "Status: Suche Name/Passcode…" }
                                 }
                             }
@@ -278,14 +280,6 @@ class MainActivity : AppCompatActivity() {
             put("passcode", card.passcode)
         })
         webSocket?.send(obj.toString())
-        val resolve = JSONObject()
-        resolve.put("type", "resolve")
-        resolve.put("card", JSONObject().apply {
-            put("de_name", card.deName)
-            put("en_name", card.enName)
-            put("passcode", card.passcode)
-        })
-        webSocket?.send(resolve.toString())
     }
 
     private fun requestSync() {
