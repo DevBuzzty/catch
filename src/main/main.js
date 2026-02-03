@@ -72,6 +72,37 @@ app.whenReady().then(() => {
         socket.send(JSON.stringify(response));
       }
     },
+    onResolve: async (card, socket) => {
+      const passcode = String(card?.passcode || '').trim();
+      const enName = String(card?.en_name || '').trim();
+      const deName = String(card?.de_name || '').trim();
+      const fetchResult = await fetchCardDetails({
+        passcode,
+        en_name: enName,
+        de_name: deName,
+        userAgent,
+        maxCandidates
+      }).catch(() => null);
+      if (!fetchResult || fetchResult.status !== CARD_STATUSES.OK_DETAILS || !fetchResult.cardDetails) {
+        if (socket?.readyState === 1) {
+          socket.send(JSON.stringify({ type: 'resolveResult', ok: false }));
+        }
+        return;
+      }
+      const detail = fetchResult.cardDetails;
+      const response = {
+        type: 'resolveResult',
+        ok: true,
+        card: {
+          passcode: detail.passcode || passcode || '',
+          en_name: detail.name || detail.en_name || enName || '',
+          de_name: detail.de_name || deName || ''
+        }
+      };
+      if (socket?.readyState === 1) {
+        socket.send(JSON.stringify(response));
+      }
+    },
     onSync: (socket) => {
       const cards = db.prepare(`
         SELECT id, de_name, en_name, passcode, source_url, cardcluster_url

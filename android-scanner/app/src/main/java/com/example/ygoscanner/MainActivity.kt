@@ -36,7 +36,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var lastResultText: TextView
     private lateinit var serverInput: EditText
-    private lateinit var startButton: Button
+    private lateinit var connectButton: Button
+    private lateinit var connectOverlay: FrameLayout
+    private lateinit var connectionStatus: TextView
     private lateinit var scannerContainer: FrameLayout
     private lateinit var libraryContainer: android.widget.LinearLayout
     private lateinit var tabScanner: Button
@@ -50,6 +52,8 @@ class MainActivity : AppCompatActivity() {
     private var lastAnalysisAt = 0L
     private var candidatePasscode: String? = null
     private var candidateHits = 0
+    private var candidateName: String? = null
+    private var candidateNameHits = 0
     private val libraryItems = mutableListOf<CardRecord>()
     private lateinit var libraryAdapter: CardAdapter
 
@@ -60,7 +64,9 @@ class MainActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         lastResultText = findViewById(R.id.lastResultText)
         serverInput = findViewById(R.id.serverInput)
-        startButton = findViewById(R.id.startButton)
+        connectButton = findViewById(R.id.connectButton)
+        connectOverlay = findViewById(R.id.connectOverlay)
+        connectionStatus = findViewById(R.id.connectionStatus)
         scannerContainer = findViewById(R.id.scannerContainer)
         libraryContainer = findViewById(R.id.libraryContainer)
         tabScanner = findViewById(R.id.tabScanner)
@@ -75,7 +81,7 @@ class MainActivity : AppCompatActivity() {
         loadCachedLibrary()
         loadSavedServerAddress()
 
-        startButton.setOnClickListener {
+        connectButton.setOnClickListener {
             if (hasCameraPermission()) {
                 connectAndStart()
             } else {
@@ -97,6 +103,14 @@ class MainActivity : AppCompatActivity() {
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
                 statusText.post { statusText.text = "Status: Verbindung fehlgeschlagen" }
+                connectionStatus.post { connectionStatus.text = "Connection failed" }
+            }
+
+            override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
+                connectionStatus.post { connectionStatus.text = "Connected" }
+                connectOverlay.post {
+                    connectOverlay.visibility = android.view.View.GONE
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -104,6 +118,7 @@ class MainActivity : AppCompatActivity() {
             }
         })
         statusText.text = "Status: verbunden ($wsUrl)"
+        connectionStatus.text = "Connecting..."
         requestSync()
         startCamera()
     }
@@ -139,8 +154,15 @@ class MainActivity : AppCompatActivity() {
                                         val extra = nameCandidate?.let { " • $it" } ?: ""
                                         statusText.post { statusText.text = "Status: Passcode erkannt ($confirmed)$extra" }
                                     }
+                                } else if (!nameCandidate.isNullOrBlank()) {
+                                    if (trackNameCandidate(nameCandidate)) {
+                                        sendCard(CardPayload(deName = nameCandidate, enName = nameCandidate, passcode = ""))
+                                        statusText.post { statusText.text = "Status: Name erkannt ($nameCandidate)" }
+                                    } else {
+                                        statusText.post { statusText.text = "Status: Name prüfen ($nameCandidate)" }
+                                    }
                                 } else {
-                                    statusText.post { statusText.text = "Status: Suche Passcode…" }
+                                    statusText.post { statusText.text = "Status: Suche Name/Passcode…" }
                                 }
                             }
                             .addOnCompleteListener {
@@ -226,8 +248,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun trackNameCandidate(name: String): Boolean {
+        val cleaned = name.trim()
+        if (cleaned.length < 4) return false
+        if (cleaned != candidateName) {
+            candidateName = cleaned
+            candidateNameHits = 1
+            return false
+        }
+        candidateNameHits += 1
+        return candidateNameHits >= 2
+    }
+
     private fun sendCard(card: CardPayload) {
-        val key = card.passcode.trim().lowercase()
+        val key = if (card.passcode.isNotBlank()) {
+            card.passcode.trim().lowercase()
+        } else {
+            card.enName.trim().lowercase()
+        }
         if (key.isBlank() || key == lastSentKey) {
             return
         }
@@ -240,6 +278,14 @@ class MainActivity : AppCompatActivity() {
             put("passcode", card.passcode)
         })
         webSocket?.send(obj.toString())
+        val resolve = JSONObject()
+        resolve.put("type", "resolve")
+        resolve.put("card", JSONObject().apply {
+            put("de_name", card.deName)
+            put("en_name", card.enName)
+            put("passcode", card.passcode)
+        })
+        webSocket?.send(resolve.toString())
     }
 
     private fun requestSync() {
@@ -253,6 +299,15 @@ class MainActivity : AppCompatActivity() {
             val payload = JSONObject(text)
             when (payload.optString("type")) {
                 "scanResult" -> {
+                    val card = payload.optJSONObject("card") ?: return
+                    val deName = card.optString("de_name")
+                    val enName = card.optString("en_name")
+                    val passcode = card.optString("passcode")
+                    lastResultText.post {
+                        lastResultText.text = "Letzter Scan: $passcode\nDE: $deName\nEN: $enName"
+                    }
+                }
+                "resolveResult" -> {
                     val card = payload.optJSONObject("card") ?: return
                     val deName = card.optString("de_name")
                     val enName = card.optString("en_name")
