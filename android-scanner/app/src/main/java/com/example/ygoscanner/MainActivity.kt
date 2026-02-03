@@ -56,8 +56,6 @@ class MainActivity : AppCompatActivity() {
     private var lastAnalysisAt = 0L
     private var candidatePasscode: String? = null
     private var candidateHits = 0
-    private var candidateName: String? = null
-    private var candidateNameHits = 0
     private val libraryItems = mutableListOf<CardRecord>()
     private lateinit var libraryAdapter: CardAdapter
     private var torchEnabled = false
@@ -163,24 +161,15 @@ class MainActivity : AppCompatActivity() {
                             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                             recognizer.process(image)
                                 .addOnSuccessListener { visionText ->
-                                    val passcode = extractPasscode(visionText, imageProxy.width, imageProxy.height)
-                                    val nameCandidate = extractName(visionText, imageProxy.width, imageProxy.height)
-                                    if (passcode != null) {
-                                        trackCandidate(passcode)?.let { confirmed ->
-                                            sendCard(CardPayload(deName = "", enName = "", passcode = confirmed))
-                                            val extra = nameCandidate?.let { " • $it" } ?: ""
-                                            statusText.post { statusText.text = "Status: Passcode erkannt ($confirmed)$extra" }
-                                        }
+                                val passcode = extractPasscode(visionText, imageProxy.width, imageProxy.height)
+                                if (passcode != null) {
+                                    trackCandidate(passcode)?.let { confirmed ->
+                                        sendCard(CardPayload(deName = "", enName = "", passcode = confirmed))
+                                        statusText.post { statusText.text = "Status: Passcode erkannt ($confirmed)" }
                                     }
-                                    if (!nameCandidate.isNullOrBlank()) {
-                                        if (trackNameCandidate(nameCandidate)) {
-                                            sendCard(CardPayload(deName = nameCandidate, enName = nameCandidate, passcode = ""))
-                                            statusText.post { statusText.text = "Status: Name erkannt ($nameCandidate)" }
-                                        }
-                                    }
-                                    if (passcode == null && nameCandidate.isNullOrBlank()) {
-                                        statusText.post { statusText.text = "Status: Suche Name/Passcode…" }
-                                    }
+                                } else {
+                                    statusText.post { statusText.text = "Status: Suche Passcode…" }
+                                }
                                 }
                                 .addOnCompleteListener { imageProxy.close() }
                         } else {
@@ -220,24 +209,6 @@ class MainActivity : AppCompatActivity() {
         return null
     }
 
-    private fun extractName(visionText: com.google.mlkit.vision.text.Text, width: Int, height: Int): String? {
-        val regionBottom = (height * 0.25f).toInt()
-        var best: String? = null
-        visionText.textBlocks.forEach { block ->
-            val box = block.boundingBox ?: return@forEach
-            if (box.centerY() > regionBottom) return@forEach
-            block.lines.forEach { line ->
-                val text = line.text.trim()
-                if (text.length < 4) return@forEach
-                if (text.any { it.isDigit() }) return@forEach
-                if (best == null || text.length > best!!.length) {
-                    best = text
-                }
-            }
-        }
-        return best
-    }
-
     private fun trackCandidate(passcode: String): String? {
         if (passcode != candidatePasscode) {
             candidatePasscode = passcode
@@ -254,17 +225,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun trackNameCandidate(name: String): Boolean {
-        val cleaned = name.trim()
-        if (cleaned.length < 4) return false
-        if (cleaned != candidateName) {
-            candidateName = cleaned
-            candidateNameHits = 1
-            return false
-        }
-        candidateNameHits += 1
-        return candidateNameHits >= 2
-    }
 
     private fun sendCard(card: CardPayload) {
         val key = if (card.passcode.isNotBlank()) {
