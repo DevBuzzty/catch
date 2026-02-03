@@ -376,6 +376,41 @@ function registerIpcHandlers(ipcMain, db, jobRunner, logger) {
     return { rows: updated };
   });
 
+  ipcMain.handle('cards:resolveScan', async (_, payload) => {
+    const passcode = String(payload?.passcode || '').trim();
+    const enName = String(payload?.en_name || '').trim();
+    const deName = String(payload?.de_name || '').trim();
+    if (!passcode && !enName && !deName) {
+      return { ok: false };
+    }
+    const settings = db.prepare('SELECT key, value FROM settings').all();
+    const userAgent = settings.find((row) => row.key === 'user_agent')?.value || 'YGO-Card-Manager/0.1';
+    const maxCandidates = Number(settings.find((row) => row.key === 'max_candidates_passcode_match')?.value || 5);
+    const fetchResult = await fetchCardDetails({
+      passcode,
+      en_name: enName,
+      de_name: deName,
+      userAgent,
+      maxCandidates
+    }).catch((error) => ({ status: CARD_STATUSES.ERROR, error }));
+    if (!fetchResult.cardDetails) {
+      return { ok: false, status: fetchResult.status || CARD_STATUSES.NOT_FOUND };
+    }
+    const detail = fetchResult.cardDetails;
+    return {
+      ok: fetchResult.status === CARD_STATUSES.OK_DETAILS || fetchResult.status === CARD_STATUSES.PARTIAL_DETAILS,
+      status: fetchResult.status,
+      card: {
+        passcode: detail.passcode || passcode,
+        en_name: detail.name || detail.en_name || enName,
+        de_name: detail.de_name || deName,
+        data_source: detail.data_source || null,
+        source_url: detail.source_url || null,
+        cardcluster_url: detail.cardcluster_url || null
+      }
+    };
+  });
+
   ipcMain.handle('cards:addPreviewCards', (_, payload) => {
     const rows = Array.isArray(payload?.rows) ? payload.rows : [];
     if (rows.length === 0) return { added: 0, duplicates: [] };

@@ -158,38 +158,33 @@ function App() {
     const handler = (payload) => {
       if (!payload) return;
       const incomingPasscode = String(payload.passcode || '').trim();
-      if (!incomingPasscode) return;
-      const scanKey = incomingPasscode.toLowerCase();
+      const incomingName = String(payload.en_name || payload.de_name || '').trim();
+      if (!incomingPasscode && !incomingName) return;
+      const scanKey = incomingPasscode ? incomingPasscode.toLowerCase() : incomingName.toLowerCase();
       if (!scanKey || scanKey === lastScanKeyRef.current) {
         return;
       }
       lastScanKeyRef.current = scanKey;
-      window.api.fetchPreviewDetails({ rows: [{ passcode: incomingPasscode, en_name: '', de_name: '', __index: 0 }] }).then((fetchResult) => {
-        const fetchedRow = fetchResult?.rows?.[0];
-        if (!fetchedRow) {
-          setImportStatus('Scan nicht gefunden.');
-          return;
-        }
-        const hasName = Boolean(fetchedRow.en_name || fetchedRow.de_name);
-        if (!fetchedRow.passcode || !hasName) {
+      window.api.resolveScan({ passcode: incomingPasscode, en_name: payload.en_name || '', de_name: payload.de_name || '' }).then((resolved) => {
+        if (!resolved?.card?.passcode) {
           setImportStatus('Scan nicht gefunden.');
           return;
         }
         window.api.previewImport({
           rows: [{
-            de_name: fetchedRow.de_name || '',
-            en_name: fetchedRow.en_name || '',
-            passcode: fetchedRow.passcode || incomingPasscode
+            de_name: resolved.card.de_name || '',
+            en_name: resolved.card.en_name || '',
+            passcode: resolved.card.passcode || incomingPasscode
           }]
         }).then((result) => {
           const row = result?.rows?.[0];
           if (!row) return;
           const mergedRow = {
             ...row,
-            ...fetchedRow,
+            ...resolved.card,
             exists: row.exists,
             existing_id: row.existing_id,
-            status: row.exists ? row.status : fetchedRow.status
+            status: row.exists ? row.status : row.status
           };
           setImportRows((prev) => [mergedRow, ...prev]);
           if (row.exists) {

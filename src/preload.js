@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   addPreviewCards: (payload) => ipcRenderer.invoke('cards:addPreviewCards', payload),
   fetchPreviewDetails: (payload) => ipcRenderer.invoke('cards:fetchPreviewDetails', payload),
   exportCsv: () => ipcRenderer.invoke('cards:exportCsv'),
+  resolveScan: (payload) => ipcRenderer.invoke('cards:resolveScan', payload),
   validatePasscodes: (payload) => ipcRenderer.invoke('cards:validatePasscodes', payload),
   getLastImportBatch: () => ipcRenderer.invoke('cards:getLastImportBatch'),
   listCardsByImportBatch: (batchId) => ipcRenderer.invoke('cards:listByImportBatch', batchId),
